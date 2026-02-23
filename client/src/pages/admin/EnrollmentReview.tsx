@@ -5,7 +5,7 @@ import { useAdminEnrollments, useUpdateEnrollmentStatus } from "@/hooks/use-admi
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle2, XCircle, FileText, BrainCircuit, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Loader2, CheckCircle2, XCircle, FileText, BrainCircuit, AlertTriangle, ArrowLeft, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
