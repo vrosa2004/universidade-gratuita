@@ -163,6 +163,23 @@ export default function StudentDashboard() {
                       </p>
                     </div>
                   )}
+
+                  {enrollment.status !== 'pending' && (
+                    <div className="mt-6 pt-6 border-t flex items-center justify-between bg-primary/5 -mx-6 px-6 pb-6 mb-[-1.5rem]">
+                      <div className="flex items-center gap-3">
+                        <UploadCloud className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="text-sm font-semibold">Atualizar Documentos</p>
+                          <p className="text-xs text-muted-foreground">Você ainda pode atualizar seus anexos</p>
+                        </div>
+                      </div>
+                      <Link href="/student/enroll">
+                        <Button variant="outline" size="sm" className="rounded-lg border-primary/20 text-primary hover:bg-primary/10">
+                          Editar Arquivos
+                        </Button>
+                      </Link>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -189,11 +206,9 @@ export default function StudentDashboard() {
                       <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Documents</p>
                       <Badge variant="secondary" className="rounded-full">{uploadedDocsCount}/5</Badge>
                     </div>
-                    {enrollment.status === 'pending' && (
-                      <Link href="/student/enroll">
-                        <Button variant="link" className="px-0 text-primary h-auto">Manage Documents &rarr;</Button>
-                      </Link>
-                    )}
+                    <Link href="/student/enroll">
+                      <Button variant="link" className="px-0 text-primary h-auto">Manage Documents &rarr;</Button>
+                    </Link>
                   </div>
                 </CardContent>
               </Card>
