@@ -113,8 +113,11 @@ export default function StudentEnrollment() {
 
   if (isFetching) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-primary w-8 h-8"/></div>;
 
-  // Allow accessing the page to edit attachments even if not pending
-  // Personal data editing and final submission will be disabled
+  // Don't allow editing if not pending
+  if (enrollment && enrollment.status !== 'pending') {
+    setLocation('/student');
+    return null;
+  }
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
   
@@ -200,7 +203,7 @@ export default function StudentEnrollment() {
                   <div className="pt-4 flex justify-end">
                     <Button 
                       onClick={handleSavePersonal} 
-                      disabled={isSaving || !formData.name || !formData.cpf || (enrollment && enrollment.status !== 'pending')}
+                      disabled={isSaving || !formData.name || !formData.cpf}
                       className="h-12 px-8 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
                     >
                       {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -311,12 +314,12 @@ export default function StudentEnrollment() {
                   <div>
                     <h3 className="font-display text-2xl font-bold mb-2">Tudo pronto?</h3>
                     <p className="text-primary-foreground/80 max-w-md">
-                      Certifique-se de que todos os dados estão corretos e os documentos estão legíveis. Após o envio, os dados pessoais não poderão ser alterados, mas você ainda poderá atualizar os anexos se necessário.
+                      Certifique-se de que todos os dados estão corretos e os documentos estão legíveis. Após o envio, você não poderá alterá-los enquanto estiverem em análise.
                     </p>
                   </div>
                   <Button 
                     onClick={handleSubmitFinal}
-                    disabled={!canSubmit || submitMutation.isPending || (enrollment && enrollment.status !== 'pending')}
+                    disabled={!canSubmit || submitMutation.isPending}
                     className="h-14 px-8 rounded-xl bg-white text-primary hover:bg-white/90 hover:scale-105 transition-all font-bold text-lg whitespace-nowrap shadow-xl"
                   >
                     {submitMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-5 w-5" />}

@@ -122,13 +122,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const id = parseInt(req.params.id);
       const input = api.documents.upload.input.parse(req.body);
       
-      // Delete existing document of the same type if it exists
-      const existingDocs = await storage.getDocuments(id);
-      const existingDoc = existingDocs.find(d => d.type === input.type);
-      if (existingDoc) {
-        await storage.deleteDocument(existingDoc.id);
-      }
-
       // Mock OCR Data based on document type
       let ocrData = null;
       if (input.type === 'cpf') {

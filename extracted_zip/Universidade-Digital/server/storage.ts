@@ -17,7 +17,6 @@ export interface IStorage {
   // Documents
   getDocuments(enrollmentId: number): Promise<Document[]>;
   createDocument(doc: InsertDocument & { enrollmentId: number }): Promise<Document>;
-  deleteDocument(id: number): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -97,10 +96,6 @@ export class MemStorage implements IStorage {
     };
     this.documents.set(id, doc);
     return doc;
-  }
-
-  async deleteDocument(id: number): Promise<void> {
-    this.documents.delete(id);
   }
 }
 
