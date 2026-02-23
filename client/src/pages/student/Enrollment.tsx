@@ -31,7 +31,7 @@ export default function StudentEnrollment() {
   const submitMutation = useSubmitEnrollment();
   const uploadMutation = useUploadDocument();
 
-  const [activeTab, setActiveTab] = useState<'personal' | 'documents'>('personal');
+  const [activeTab, setActiveTab] = useState<'personal' | 'documents' | 'files'>('personal');
   
   // Form State
   const [formData, setFormData] = useState({
@@ -50,7 +50,7 @@ export default function StudentEnrollment() {
         dateOfBirth: enrollment.dateOfBirth || '',
         income: enrollment.income?.toString() || '',
       });
-      if (enrollment.name) {
+      if (enrollment.name && activeTab === 'personal') {
         setActiveTab('documents');
       }
     }
@@ -65,14 +65,14 @@ export default function StudentEnrollment() {
 
       if (enrollment) {
         await updateMutation.mutateAsync({ id: enrollment.id, data: payload });
-        toast({ title: "Personal data updated!" });
+        toast({ title: "Dados pessoais atualizados!" });
       } else {
         await createMutation.mutateAsync({ studentId: user!.id, ...payload });
-        toast({ title: "Application started successfully!" });
+        toast({ title: "Inscrição iniciada com sucesso!" });
       }
       setActiveTab('documents');
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Error saving data", description: e.message });
+      toast({ variant: "destructive", title: "Erro ao salvar dados", description: e.message });
     }
   };
 
@@ -93,9 +93,9 @@ export default function StudentEnrollment() {
             base64Content: reader.result as string
           }
         });
-        toast({ title: `${DOCUMENT_TYPES.find(d => d.id === type)?.label} uploaded successfully!` });
+        toast({ title: `${DOCUMENT_TYPES.find(d => d.id === type)?.label} enviado com sucesso!` });
       } catch (err: any) {
-        toast({ variant: "destructive", title: "Upload failed", description: err.message });
+        toast({ variant: "destructive", title: "Falha no envio", description: err.message });
       }
     };
   };
@@ -104,10 +104,10 @@ export default function StudentEnrollment() {
     if (!enrollment) return;
     try {
       await submitMutation.mutateAsync(enrollment.id);
-      toast({ title: "Application submitted successfully!", description: "Your application is now under review." });
+      toast({ title: "Inscrição enviada com sucesso!", description: "Sua inscrição está em análise." });
       setLocation('/student');
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Cannot submit", description: e.message });
+      toast({ variant: "destructive", title: "Não foi possível enviar", description: e.message });
     }
   };
 
@@ -131,8 +131,8 @@ export default function StudentEnrollment() {
       
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="mb-8">
-          <h1 className="text-3xl font-display font-bold text-foreground">My Application</h1>
-          <p className="text-muted-foreground mt-1">Complete your profile and required documents</p>
+          <h1 className="text-3xl font-display font-bold text-foreground">Minha Inscrição</h1>
+          <p className="text-muted-foreground mt-1">Complete seu perfil e envie os documentos obrigatórios</p>
         </div>
 
         {/* Custom Tabs */}
@@ -141,16 +141,25 @@ export default function StudentEnrollment() {
             onClick={() => setActiveTab('personal')}
             className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'personal' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           >
-            1. Personal Data
+            1. Dados Pessoais
           </button>
           <button 
             onClick={() => {
               if (enrollment) setActiveTab('documents');
-              else toast({ title: "Save personal data first", variant: "destructive" });
+              else toast({ title: "Salve os dados pessoais primeiro", variant: "destructive" });
             }}
             className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'documents' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'} ${!enrollment && 'opacity-50 cursor-not-allowed'}`}
           >
-            2. Documents
+            2. Lista de Documentos
+          </button>
+          <button 
+            onClick={() => {
+              if (enrollment) setActiveTab('files');
+              else toast({ title: "Salve os dados pessoais primeiro", variant: "destructive" });
+            }}
+            className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'files' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'} ${!enrollment && 'opacity-50 cursor-not-allowed'}`}
+          >
+            3. Anexar Arquivos
           </button>
         </div>
 
@@ -167,27 +176,27 @@ export default function StudentEnrollment() {
                 <CardHeader className="pb-4 border-b border-border/50">
                   <CardTitle className="font-display flex items-center gap-2">
                     <ShieldCheck className="h-5 w-5 text-primary" />
-                    Personal Information
+                    Informações Pessoais
                   </CardTitle>
-                  <CardDescription>We need these details to verify your eligibility.</CardDescription>
+                  <CardDescription>Precisamos destes detalhes para verificar sua elegibilidade.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6 pt-6 p-6 md:p-8">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="name">Full Name</Label>
-                      <Input id="name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="John Doe" />
+                      <Label htmlFor="name">Nome Completo</Label>
+                      <Input id="name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="João Silva" />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="cpf">CPF</Label>
                       <Input id="cpf" value={formData.cpf} onChange={(e) => setFormData({...formData, cpf: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="000.000.000-00" />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="dob">Date of Birth</Label>
+                      <Label htmlFor="dob">Data de Nascimento</Label>
                       <Input id="dob" type="date" value={formData.dateOfBirth} onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="income">Monthly Income (R$)</Label>
-                      <Input id="income" type="number" value={formData.income} onChange={(e) => setFormData({...formData, income: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="e.g. 1500" />
+                      <Label htmlFor="income">Renda Mensal (R$)</Label>
+                      <Input id="income" type="number" value={formData.income} onChange={(e) => setFormData({...formData, income: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="Ex: 1500" />
                     </div>
                   </div>
                   
@@ -198,7 +207,7 @@ export default function StudentEnrollment() {
                       className="h-12 px-8 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
                     >
                       {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Save & Continue to Documents
+                      Salvar e Continuar
                     </Button>
                   </div>
                 </CardContent>
@@ -209,6 +218,53 @@ export default function StudentEnrollment() {
           {activeTab === 'documents' && enrollment && (
             <motion.div
               key="documents"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
+            >
+              <Card className="border-0 shadow-xl shadow-black/5 rounded-2xl">
+                <CardHeader className="pb-4 border-b border-border/50">
+                  <CardTitle className="font-display flex items-center gap-2">
+                    <File className="h-5 w-5 text-primary" />
+                    Status dos Documentos
+                  </CardTitle>
+                  <CardDescription>Verifique quais documentos já foram enviados.</CardDescription>
+                </CardHeader>
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {DOCUMENT_TYPES.map((doc) => {
+                      const isUploaded = uploadedTypes.includes(doc.id);
+                      return (
+                        <div key={doc.id} className={`p-4 rounded-xl border flex items-center justify-between ${isUploaded ? 'bg-primary/5 border-primary/20' : 'bg-muted/30 border-border'}`}>
+                          <div className="flex items-center gap-3">
+                            {isUploaded ? <CheckCircle2 className="w-5 h-5 text-primary" /> : <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30" />}
+                            <div>
+                              <p className="text-sm font-semibold">{doc.label}</p>
+                              <p className="text-xs text-muted-foreground">{isUploaded ? 'Enviado' : 'Pendente'}</p>
+                            </div>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => setActiveTab('files')}>
+                            Ver
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-8 flex justify-end">
+                    <Button onClick={() => setActiveTab('files')} className="h-12 rounded-xl">
+                      Ir para Anexos
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {activeTab === 'files' && enrollment && (
+            <motion.div
+              key="files"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
@@ -236,7 +292,7 @@ export default function StudentEnrollment() {
                             className={`cursor-pointer inline-flex items-center justify-center h-10 px-4 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 ${isUploaded ? 'bg-background border border-border hover:bg-secondary text-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
                           >
                             {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : 
-                             isUploaded ? 'Replace' : <><Upload className="w-4 h-4 mr-2" /> Upload</>}
+                             isUploaded ? 'Substituir' : <><Upload className="w-4 h-4 mr-2" /> Enviar</>}
                           </Label>
                           <Input 
                             id={`file-${doc.id}`} 
@@ -256,9 +312,9 @@ export default function StudentEnrollment() {
               <Card className="border-0 shadow-xl shadow-primary/10 rounded-2xl bg-gradient-to-br from-primary to-accent text-primary-foreground overflow-hidden mt-8">
                 <CardContent className="p-8 flex flex-col md:flex-row items-center justify-between gap-6">
                   <div>
-                    <h3 className="font-display text-2xl font-bold mb-2">Ready to submit?</h3>
+                    <h3 className="font-display text-2xl font-bold mb-2">Tudo pronto?</h3>
                     <p className="text-primary-foreground/80 max-w-md">
-                      Make sure all your data is correct and documents are readable. Once submitted, you cannot change them while under review.
+                      Certifique-se de que todos os dados estão corretos e os documentos estão legíveis. Após o envio, você não poderá alterá-los enquanto estiverem em análise.
                     </p>
                   </div>
                   <Button 
@@ -267,7 +323,7 @@ export default function StudentEnrollment() {
                     className="h-14 px-8 rounded-xl bg-white text-primary hover:bg-white/90 hover:scale-105 transition-all font-bold text-lg whitespace-nowrap shadow-xl"
                   >
                     {submitMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-5 w-5" />}
-                    Submit Application
+                    Finalizar Inscrição
                   </Button>
                 </CardContent>
               </Card>
