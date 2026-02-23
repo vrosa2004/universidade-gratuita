@@ -9,8 +9,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle2, Upload, File, ShieldCheck, Send } from "lucide-react";
+import { Loader2, CheckCircle2, Upload, File, ShieldCheck, Send, Pencil } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const DOCUMENT_TYPES = [
   { id: 'rg', label: 'Identity Card (RG)', desc: 'Front and back of your ID' },
@@ -31,7 +38,8 @@ export default function StudentEnrollment() {
   const submitMutation = useSubmitEnrollment();
   const uploadMutation = useUploadDocument();
 
-  const [activeTab, setActiveTab] = useState<'personal' | 'documents' | 'files'>('personal');
+  const [activeTab, setActiveTab] = useState<'personal' | 'documents'>('personal');
+  const [editingDoc, setEditingDoc] = useState<typeof DOCUMENT_TYPES[number] | null>(null);
   
   // Form State
   const [formData, setFormData] = useState({
@@ -50,9 +58,6 @@ export default function StudentEnrollment() {
         dateOfBirth: enrollment.dateOfBirth || '',
         income: enrollment.income?.toString() || '',
       });
-      if (enrollment.name && activeTab === 'personal') {
-        setActiveTab('documents');
-      }
     }
   }, [enrollment]);
 
@@ -70,7 +75,6 @@ export default function StudentEnrollment() {
         await createMutation.mutateAsync({ studentId: user!.id, ...payload });
         toast({ title: "Inscrição iniciada com sucesso!" });
       }
-      setActiveTab('documents');
     } catch (e: any) {
       toast({ variant: "destructive", title: "Erro ao salvar dados", description: e.message });
     }
@@ -80,7 +84,6 @@ export default function StudentEnrollment() {
     const file = e.target.files?.[0];
     if (!file || !enrollment) return;
 
-    // Simulate convert to base64
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = async () => {
@@ -94,6 +97,7 @@ export default function StudentEnrollment() {
           }
         });
         toast({ title: `${DOCUMENT_TYPES.find(d => d.id === type)?.label} enviado com sucesso!` });
+        setEditingDoc(null);
       } catch (err: any) {
         toast({ variant: "destructive", title: "Falha no envio", description: err.message });
       }
@@ -113,11 +117,7 @@ export default function StudentEnrollment() {
 
   if (isFetching) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-primary w-8 h-8"/></div>;
 
-  // Allow accessing the page to edit attachments even if not pending
-  // Personal data editing and final submission will be disabled
-
   const isSaving = createMutation.isPending || updateMutation.isPending;
-  
   const uploadedTypes = enrollment?.documents?.map((d: any) => d.type) || [];
   const allDocsUploaded = DOCUMENT_TYPES.every(d => uploadedTypes.includes(d.id));
   const canSubmit = enrollment?.name && enrollment?.cpf && allDocsUploaded;
@@ -132,201 +132,179 @@ export default function StudentEnrollment() {
           <p className="text-muted-foreground mt-1">Complete seu perfil e envie os documentos obrigatórios</p>
         </div>
 
-        {/* Custom Tabs */}
-        <div className="flex space-x-2 mb-8 p-1 bg-muted/50 rounded-xl w-fit border">
-          <button 
-            onClick={() => setActiveTab('personal')}
-            className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'personal' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-          >
-            1. Dados Pessoais
-          </button>
-          <button 
-            onClick={() => {
-              if (enrollment) setActiveTab('documents');
-              else toast({ title: "Salve os dados pessoais primeiro", variant: "destructive" });
-            }}
-            className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'documents' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'} ${!enrollment && 'opacity-50 cursor-not-allowed'}`}
-          >
-            2. Lista de Documentos
-          </button>
-          <button 
-            onClick={() => {
-              if (enrollment) setActiveTab('files');
-              else toast({ title: "Salve os dados pessoais primeiro", variant: "destructive" });
-            }}
-            className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'files' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'} ${!enrollment && 'opacity-50 cursor-not-allowed'}`}
-          >
-            3. Anexar Arquivos
-          </button>
+        <div className="grid grid-cols-1 md:grid-cols-1 gap-8">
+          {/* Section 1: Dados Pessoais */}
+          <Card className="border-0 shadow-xl shadow-black/5 rounded-2xl">
+            <CardHeader className="pb-4 border-b border-border/50">
+              <CardTitle className="font-display flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                1. Informações Pessoais
+              </CardTitle>
+              <CardDescription>Precisamos destes detalhes para verificar sua elegibilidade.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 pt-6 p-6 md:p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Nome Completo</Label>
+                  <Input 
+                    id="name" 
+                    value={formData.name} 
+                    onChange={(e) => setFormData({...formData, name: e.target.value})} 
+                    disabled={enrollment && enrollment.status !== 'pending'}
+                    className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" 
+                    placeholder="João Silva" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cpf">CPF</Label>
+                  <Input 
+                    id="cpf" 
+                    value={formData.cpf} 
+                    onChange={(e) => setFormData({...formData, cpf: e.target.value})} 
+                    disabled={enrollment && enrollment.status !== 'pending'}
+                    className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" 
+                    placeholder="000.000.000-00" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dob">Data de Nascimento</Label>
+                  <Input 
+                    id="dob" 
+                    type="date" 
+                    value={formData.dateOfBirth} 
+                    onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})} 
+                    disabled={enrollment && enrollment.status !== 'pending'}
+                    className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="income">Renda Mensal (R$)</Label>
+                  <Input 
+                    id="income" 
+                    type="number" 
+                    value={formData.income} 
+                    onChange={(e) => setFormData({...formData, income: e.target.value})} 
+                    disabled={enrollment && enrollment.status !== 'pending'}
+                    className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" 
+                    placeholder="Ex: 1500" 
+                  />
+                </div>
+              </div>
+              
+              <div className="pt-4 flex justify-end">
+                <Button 
+                  onClick={handleSavePersonal} 
+                  disabled={isSaving || !formData.name || !formData.cpf || (enrollment && enrollment.status !== 'pending')}
+                  className="h-12 px-8 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
+                >
+                  {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {enrollment ? 'Atualizar Dados' : 'Iniciar Inscrição'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Section 2: Documentos */}
+          {enrollment && (
+            <Card className="border-0 shadow-xl shadow-black/5 rounded-2xl">
+              <CardHeader className="pb-4 border-b border-border/50">
+                <CardTitle className="font-display flex items-center gap-2">
+                  <File className="h-5 w-5 text-primary" />
+                  2. Documentos e Anexos
+                </CardTitle>
+                <CardDescription>Gerencie seus documentos obrigatórios.</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-6 p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {DOCUMENT_TYPES.map((doc) => {
+                    const isUploaded = uploadedTypes.includes(doc.id);
+                    const docData = enrollment.documents?.find((d: any) => d.type === doc.id);
+                    
+                    return (
+                      <div key={doc.id} className={`p-4 rounded-xl border flex items-center justify-between transition-all ${isUploaded ? 'bg-primary/5 border-primary/20 shadow-sm' : 'bg-muted/30 border-border border-dashed'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isUploaded ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                            {isUploaded ? <CheckCircle2 className="w-5 h-5" /> : <Upload className="w-5 h-5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold truncate">{doc.label}</p>
+                            <p className="text-xs text-muted-foreground truncate">{isUploaded ? docData?.name : 'Pendente'}</p>
+                          </div>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="rounded-lg h-9 w-9 p-0"
+                          onClick={() => setEditingDoc(doc)}
+                        >
+                          {isUploaded ? <Pencil className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-10 pt-6 border-t">
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-2xl bg-gradient-to-br from-primary to-accent text-primary-foreground shadow-lg shadow-primary/20">
+                    <div className="text-center md:text-left">
+                      <h3 className="font-display text-xl font-bold mb-1">Finalizar Inscrição</h3>
+                      <p className="text-primary-foreground/80 text-sm max-w-sm">
+                        Após o envio, os dados pessoais serão bloqueados para análise. Você poderá atualizar anexos se necessário.
+                      </p>
+                    </div>
+                    <Button 
+                      onClick={handleSubmitFinal}
+                      disabled={!canSubmit || submitMutation.isPending || (enrollment && enrollment.status !== 'pending')}
+                      className="h-12 px-8 rounded-xl bg-white text-primary hover:bg-white/90 font-bold shadow-xl shrink-0"
+                    >
+                      {submitMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-5 w-5" />}
+                      Enviar Agora
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        <AnimatePresence mode="wait">
-          {activeTab === 'personal' && (
-            <motion.div
-              key="personal"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.3 }}
-            >
-              <Card className="border-0 shadow-xl shadow-black/5 rounded-2xl">
-                <CardHeader className="pb-4 border-b border-border/50">
-                  <CardTitle className="font-display flex items-center gap-2">
-                    <ShieldCheck className="h-5 w-5 text-primary" />
-                    Informações Pessoais
-                  </CardTitle>
-                  <CardDescription>Precisamos destes detalhes para verificar sua elegibilidade.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6 pt-6 p-6 md:p-8">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="name">Nome Completo</Label>
-                      <Input id="name" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="João Silva" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cpf">CPF</Label>
-                      <Input id="cpf" value={formData.cpf} onChange={(e) => setFormData({...formData, cpf: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="000.000.000-00" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="dob">Data de Nascimento</Label>
-                      <Input id="dob" type="date" value={formData.dateOfBirth} onChange={(e) => setFormData({...formData, dateOfBirth: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="income">Renda Mensal (R$)</Label>
-                      <Input id="income" type="number" value={formData.income} onChange={(e) => setFormData({...formData, income: e.target.value})} className="h-12 rounded-xl bg-background border-border focus:ring-primary/20" placeholder="Ex: 1500" />
-                    </div>
+        {/* Upload Modal */}
+        <Dialog open={!!editingDoc} onOpenChange={(open) => !open && setEditingDoc(null)}>
+          <DialogContent className="sm:max-w-md rounded-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Upload className="h-5 w-5 text-primary" />
+                {editingDoc?.label}
+              </DialogTitle>
+              <DialogDescription>
+                Selecione o arquivo para envio. {editingDoc?.desc}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-6">
+              <div className="border-2 border-dashed border-muted-foreground/20 rounded-2xl p-8 text-center bg-muted/30 hover:bg-muted/50 transition-colors group">
+                <Label 
+                  htmlFor="modal-file-upload" 
+                  className="cursor-pointer flex flex-col items-center gap-4"
+                >
+                  <div className="w-16 h-16 rounded-full bg-primary/10 text-primary flex items-center justify-center group-hover:scale-110 transition-transform">
+                    {uploadMutation.isPending ? <Loader2 className="h-8 w-8 animate-spin" /> : <Upload className="h-8 w-8" />}
                   </div>
-                  
-                  <div className="pt-4 flex justify-end">
-                    <Button 
-                      onClick={handleSavePersonal} 
-                      disabled={isSaving || !formData.name || !formData.cpf || (enrollment && enrollment.status !== 'pending')}
-                      className="h-12 px-8 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
-                    >
-                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Salvar e Continuar
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-
-          {activeTab === 'documents' && enrollment && (
-            <motion.div
-              key="documents"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              <Card className="border-0 shadow-xl shadow-black/5 rounded-2xl">
-                <CardHeader className="pb-4 border-b border-border/50">
-                  <CardTitle className="font-display flex items-center gap-2">
-                    <File className="h-5 w-5 text-primary" />
-                    Status dos Documentos
-                  </CardTitle>
-                  <CardDescription>Verifique quais documentos já foram enviados.</CardDescription>
-                </CardHeader>
-                <CardContent className="pt-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {DOCUMENT_TYPES.map((doc) => {
-                      const isUploaded = uploadedTypes.includes(doc.id);
-                      return (
-                        <div key={doc.id} className={`p-4 rounded-xl border flex items-center justify-between ${isUploaded ? 'bg-primary/5 border-primary/20' : 'bg-muted/30 border-border'}`}>
-                          <div className="flex items-center gap-3">
-                            {isUploaded ? <CheckCircle2 className="w-5 h-5 text-primary" /> : <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30" />}
-                            <div>
-                              <p className="text-sm font-semibold">{doc.label}</p>
-                              <p className="text-xs text-muted-foreground">{isUploaded ? 'Enviado' : 'Pendente'}</p>
-                            </div>
-                          </div>
-                          <Button variant="ghost" size="sm" onClick={() => setActiveTab('files')}>
-                            Ver
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-8 flex justify-end">
-                    <Button onClick={() => setActiveTab('files')} className="h-12 rounded-xl">
-                      Ir para Anexos
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-
-          {activeTab === 'files' && enrollment && (
-            <motion.div
-              key="files"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-6"
-            >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {DOCUMENT_TYPES.map((doc) => {
-                  const isUploaded = uploadedTypes.includes(doc.id);
-                  const isUploading = uploadMutation.isPending && uploadMutation.variables?.data.type === doc.id;
-
-                  return (
-                    <Card key={doc.id} className={`border border-border/50 shadow-md rounded-xl overflow-hidden transition-all ${isUploaded ? 'bg-primary/5 border-primary/20' : 'bg-card hover:border-primary/30'}`}>
-                      <div className="p-5 flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${isUploaded ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
-                          {isUploaded ? <CheckCircle2 className="w-6 h-6" /> : <File className="w-6 h-6" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-foreground truncate">{doc.label}</h4>
-                          <p className="text-xs text-muted-foreground truncate">{doc.desc}</p>
-                        </div>
-                        <div>
-                          <Label 
-                            htmlFor={`file-${doc.id}`}
-                            className={`cursor-pointer inline-flex items-center justify-center h-10 px-4 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 ${isUploaded ? 'bg-background border border-border hover:bg-secondary text-foreground' : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'}`}
-                          >
-                            {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : 
-                             isUploaded ? 'Substituir' : <><Upload className="w-4 h-4 mr-2" /> Enviar</>}
-                          </Label>
-                          <Input 
-                            id={`file-${doc.id}`} 
-                            type="file" 
-                            className="hidden" 
-                            onChange={(e) => handleFileUpload(e, doc.id)}
-                            accept="image/*,.pdf"
-                            disabled={uploadMutation.isPending}
-                          />
-                        </div>
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
-
-              <Card className="border-0 shadow-xl shadow-primary/10 rounded-2xl bg-gradient-to-br from-primary to-accent text-primary-foreground overflow-hidden mt-8">
-                <CardContent className="p-8 flex flex-col md:flex-row items-center justify-between gap-6">
                   <div>
-                    <h3 className="font-display text-2xl font-bold mb-2">Tudo pronto?</h3>
-                    <p className="text-primary-foreground/80 max-w-md">
-                      Certifique-se de que todos os dados estão corretos e os documentos estão legíveis. Após o envio, os dados pessoais não poderão ser alterados, mas você ainda poderá atualizar os anexos se necessário.
-                    </p>
+                    <p className="text-sm font-semibold">Clique para selecionar</p>
+                    <p className="text-xs text-muted-foreground mt-1">Imagens ou PDF até 10MB</p>
                   </div>
-                  <Button 
-                    onClick={handleSubmitFinal}
-                    disabled={!canSubmit || submitMutation.isPending || (enrollment && enrollment.status !== 'pending')}
-                    className="h-14 px-8 rounded-xl bg-white text-primary hover:bg-white/90 hover:scale-105 transition-all font-bold text-lg whitespace-nowrap shadow-xl"
-                  >
-                    {submitMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Send className="mr-2 h-5 w-5" />}
-                    Finalizar Inscrição
-                  </Button>
-                </CardContent>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                </Label>
+                <Input 
+                  id="modal-file-upload" 
+                  type="file" 
+                  className="hidden" 
+                  onChange={(e) => handleFileUpload(e, editingDoc?.id)}
+                  accept="image/*,.pdf"
+                  disabled={uploadMutation.isPending}
+                />
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );
