@@ -23,17 +23,17 @@ export default function AuthPage() {
     try {
       if (action === 'login') {
         const user = await login({ username, password });
-        toast({ title: "Welcome back!" });
+        toast({ title: "Bem-vindo de volta!" });
         setLocation(user.role === 'admin' ? '/admin' : '/student');
       } else {
         const user = await register({ username, password, role });
-        toast({ title: "Account created successfully!" });
+        toast({ title: "Conta criada com sucesso!" });
         setLocation(user.role === 'admin' ? '/admin' : '/student');
       }
     } catch (error: any) {
       toast({
         variant: "destructive",
-        title: "Error",
+        title: "Erro",
         description: error.message,
       });
     }
@@ -56,10 +56,10 @@ export default function AuthPage() {
           >
             <GraduationCap className="h-16 w-16 mb-8" />
             <h1 className="text-4xl md:text-5xl font-display font-bold mb-6 leading-tight">
-              Your future starts here.
+              Seu futuro começa aqui.
             </h1>
             <p className="text-lg opacity-90 leading-relaxed">
-              Join the Digital Free University. Apply for full scholarships and get access to world-class education from anywhere.
+              Entre na Universidade Digital Gratuita. Candidate-se a bolsas completas e tenha acesso a uma educação de excelência de qualquer lugar.
             </p>
           </motion.div>
         </div>
@@ -80,29 +80,29 @@ export default function AuthPage() {
 
           <Tabs defaultValue="login" className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-8 h-12 p-1 bg-secondary rounded-xl">
-              <TabsTrigger value="login" className="rounded-lg text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:shadow-sm">Sign In</TabsTrigger>
-              <TabsTrigger value="register" className="rounded-lg text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:shadow-sm">Create Account</TabsTrigger>
+              <TabsTrigger value="login" className="rounded-lg text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:shadow-sm">Entrar</TabsTrigger>
+              <TabsTrigger value="register" className="rounded-lg text-sm font-medium transition-all data-[state=active]:bg-background data-[state=active]:shadow-sm">Criar Conta</TabsTrigger>
             </TabsList>
 
             <TabsContent value="login">
               <Card className="border-0 shadow-2xl shadow-primary/5 rounded-2xl overflow-hidden">
                 <CardHeader className="space-y-1 pb-6">
-                  <CardTitle className="text-2xl font-bold font-display">Welcome back</CardTitle>
-                  <CardDescription>Enter your credentials to access your portal</CardDescription>
+                  <CardTitle className="text-2xl font-bold font-display">Bem-vindo de volta</CardTitle>
+                  <CardDescription>Insira suas credenciais para acessar seu portal</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="login-username">Username</Label>
+                    <Label htmlFor="login-username">Usuário</Label>
                     <Input 
                       id="login-username" 
-                      placeholder="e.g. student123" 
+                      placeholder="ex: estudante123" 
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       className="h-12 px-4 rounded-xl bg-secondary/50 border-transparent focus:bg-background focus:border-primary transition-all"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="login-password">Password</Label>
+                    <Label htmlFor="login-password">Senha</Label>
                     <Input 
                       id="login-password" 
                       type="password"
@@ -116,7 +116,7 @@ export default function AuthPage() {
                     onClick={() => handleAuth('login')}
                     disabled={isLoggingIn || !username || !password}
                   >
-                    {isLoggingIn ? <Loader2 className="h-5 w-5 animate-spin" /> : "Sign In"}
+                    {isLoggingIn ? <Loader2 className="h-5 w-5 animate-spin" /> : "Entrar"}
                   </Button>
                 </CardContent>
               </Card>
@@ -125,22 +125,22 @@ export default function AuthPage() {
             <TabsContent value="register">
               <Card className="border-0 shadow-2xl shadow-primary/5 rounded-2xl overflow-hidden">
                 <CardHeader className="space-y-1 pb-6">
-                  <CardTitle className="text-2xl font-bold font-display">Start your journey</CardTitle>
-                  <CardDescription>Create a new account to apply</CardDescription>
+                  <CardTitle className="text-2xl font-bold font-display">Comece sua jornada</CardTitle>
+                  <CardDescription>Crie uma nova conta para se candidatar</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="reg-username">Username</Label>
+                    <Label htmlFor="reg-username">Usuário</Label>
                     <Input 
                       id="reg-username" 
-                      placeholder="Choose a username" 
+                      placeholder="Escolha um nome de usuário" 
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       className="h-12 px-4 rounded-xl bg-secondary/50 border-transparent focus:bg-background focus:border-primary transition-all"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="reg-password">Password</Label>
+                    <Label htmlFor="reg-password">Senha</Label>
                     <Input 
                       id="reg-password" 
                       type="password"
@@ -152,14 +152,14 @@ export default function AuthPage() {
                   
                   {/* Demo purpose: allow selecting role */}
                   <div className="space-y-2 pt-2">
-                    <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Account Type (Demo)</Label>
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Tipo de Conta (Demo)</Label>
                     <div className="grid grid-cols-2 gap-2">
                       <Button 
                         variant={role === 'student' ? 'default' : 'outline'} 
                         className={`rounded-lg h-10 ${role === 'student' ? 'shadow-md' : ''}`}
                         onClick={() => setRole('student')}
                       >
-                        Student
+                        Estudante
                       </Button>
                       <Button 
                         variant={role === 'admin' ? 'default' : 'outline'} 
@@ -177,7 +177,7 @@ export default function AuthPage() {
                     disabled={isRegistering || !username || !password}
                   >
                     {isRegistering ? <Loader2 className="h-5 w-5 animate-spin" /> : (
-                      <>Create Account <ArrowRight className="ml-2 h-4 w-4" /></>
+                      <>Criar Conta <ArrowRight className="ml-2 h-4 w-4" /></>
                     )}
                   </Button>
                 </CardContent>

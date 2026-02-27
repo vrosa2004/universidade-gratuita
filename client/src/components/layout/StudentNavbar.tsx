@@ -10,8 +10,8 @@ export function StudentNavbar() {
   const { user, logout } = useAuth();
 
   const navItems = [
-    { href: "/student", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/student/enroll", label: "My Application", icon: FileText },
+    { href: "/student", label: "Painel", icon: LayoutDashboard },
+    { href: "/student/enroll", label: "Minha Inscrição", icon: FileText },
   ];
 
   return (
@@ -58,14 +58,14 @@ export function StudentNavbar() {
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium leading-none">{user?.username}</p>
                   <p className="text-xs leading-none text-muted-foreground">
-                    Student Portal
+                    Portal do Estudante
                   </p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => logout()} className="text-destructive cursor-pointer">
                 <LogOut className="mr-2 h-4 w-4" />
-                <span>Log out</span>
+                <span>Sair</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

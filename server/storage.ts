@@ -1,4 +1,7 @@
-import { type User, type InsertUser, type Enrollment, type InsertEnrollment, type Document, type InsertDocument } from "@shared/schema";
+import "dotenv/config";
+import { type User, type InsertUser, type Enrollment, type InsertEnrollment, type Document, type InsertDocument, users, enrollments, documents } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -16,7 +19,7 @@ export interface IStorage {
 
   // Documents
   getDocuments(enrollmentId: number): Promise<Document[]>;
-  createDocument(doc: InsertDocument & { enrollmentId: number }): Promise<Document>;
+  createDocument(doc: InsertDocument & { enrollmentId: number; url: string; ocrData?: unknown }): Promise<Document>;
   deleteDocument(id: number): Promise<void>;
 }
 
@@ -58,6 +61,16 @@ export class MemStorage implements IStorage {
   async createEnrollment(insertEnrollment: InsertEnrollment & { studentId: number }): Promise<Enrollment> {
     const id = this.currentEnrollmentId++;
     const enrollment: Enrollment = {
+      name: null,
+      cpf: null,
+      dateOfBirth: null,
+      income: null,
+      monthlyExpenses: null,
+      incomeCategory: null,
+      hasFormalEmploymentHistory: null,
+      hasVariableIncome: null,
+      isCompanyActive: null,
+      hasProLabore: null,
       ...insertEnrollment,
       id,
       status: 'pending',
@@ -88,9 +101,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.documents.values()).filter(d => d.enrollmentId === enrollmentId);
   }
 
-  async createDocument(insertDoc: InsertDocument & { enrollmentId: number }): Promise<Document> {
+  async createDocument(insertDoc: InsertDocument & { enrollmentId: number; url: string; ocrData?: unknown }): Promise<Document> {
     const id = this.currentDocumentId++;
     const doc: Document = {
+      ocrData: null,
       ...insertDoc,
       id,
       uploadedAt: new Date(),
@@ -104,4 +118,75 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// ---------------------------------------------------------------------------
+// PostgreSQL storage (production)
+// ---------------------------------------------------------------------------
+export class DrizzleStorage implements IStorage {
+  // Users
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
+  // Enrollments
+  async getEnrollment(id: number): Promise<Enrollment | undefined> {
+    const [row] = await db.select().from(enrollments).where(eq(enrollments.id, id));
+    return row;
+  }
+
+  async getEnrollmentByStudent(studentId: number): Promise<Enrollment | undefined> {
+    const [row] = await db.select().from(enrollments).where(eq(enrollments.studentId, studentId));
+    return row;
+  }
+
+  async getEnrollments(): Promise<Enrollment[]> {
+    return db.select().from(enrollments);
+  }
+
+  async createEnrollment(enrollment: InsertEnrollment & { studentId: number }): Promise<Enrollment> {
+    const [row] = await db.insert(enrollments).values(enrollment).returning();
+    return row;
+  }
+
+  async updateEnrollment(id: number, updates: Partial<InsertEnrollment>): Promise<Enrollment> {
+    const [row] = await db.update(enrollments).set(updates).where(eq(enrollments.id, id)).returning();
+    if (!row) throw new Error("Enrollment not found");
+    return row;
+  }
+
+  async updateEnrollmentStatus(id: number, status: string, systemDecision?: string): Promise<Enrollment> {
+    const set: any = { status };
+    if (systemDecision !== undefined) set.systemDecision = systemDecision;
+    const [row] = await db.update(enrollments).set(set).where(eq(enrollments.id, id)).returning();
+    if (!row) throw new Error("Enrollment not found");
+    return row;
+  }
+
+  // Documents
+  async getDocuments(enrollmentId: number): Promise<Document[]> {
+    return db.select().from(documents).where(eq(documents.enrollmentId, enrollmentId));
+  }
+
+  async createDocument(doc: InsertDocument & { enrollmentId: number; url: string; ocrData?: unknown }): Promise<Document> {
+    const [row] = await db.insert(documents).values(doc).returning();
+    return row;
+  }
+
+  async deleteDocument(id: number): Promise<void> {
+    await db.delete(documents).where(eq(documents.id, id));
+  }
+}
+
+export const storage: IStorage = process.env.DATABASE_URL
+  ? new DrizzleStorage()
+  : new MemStorage();

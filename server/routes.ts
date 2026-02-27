@@ -1,9 +1,17 @@
+import "dotenv/config";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { pool } from "./db";
 import { api } from "@shared/routes";
+import { getRequiredAttachments, validateAttachments } from "@shared/attachments";
+import type { AttachmentContext, IncomeCategory } from "@shared/attachments";
 import { z } from "zod";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import bcrypt from "bcrypt";
+
+const PgSession = connectPgSimple(session);
 
 declare module 'express-session' {
   interface SessionData {
@@ -12,9 +20,14 @@ declare module 'express-session' {
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
-  // Setup session
+  // Setup session (uses PostgreSQL when DATABASE_URL is available)
+  const sessionStore = process.env.DATABASE_URL
+    ? new PgSession({ pool, createTableIfMissing: true })
+    : undefined;
+
   app.use(session({
-    secret: 'super-secret-prototype-key',
+    store: sessionStore,
+    secret: process.env.SESSION_SECRET ?? 'dev-secret-change-in-production',
     resave: false,
     saveUninitialized: false,
     cookie: { secure: false }
@@ -44,7 +57,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { username, password } = api.auth.login.input.parse(req.body);
       const user = await storage.getUserByUsername(username);
-      if (!user || user.password !== password) {
+      const passwordValid = user ? await bcrypt.compare(password, user.password) : false;
+      if (!user || !passwordValid) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
       req.session.userId = user.id;
@@ -61,7 +75,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (existing) {
         return res.status(400).json({ message: "Username already exists" });
       }
-      const user = await storage.createUser(input);
+      const hashedPassword = await bcrypt.hash(input.password, 10);
+      const user = await storage.createUser({ ...input, password: hashedPassword });
       req.session.userId = user.id;
       res.status(201).json(user);
     } catch (e) {
@@ -81,7 +96,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post(api.auth.logout.path, (req, res) => {
-    req.session.destroy(() => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error("Session destroy error:", err);
+      }
+      res.clearCookie("connect.sid");
       res.json({ message: "Logged out" });
     });
   });
@@ -109,7 +128,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.put(api.enrollments.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.enrollments.update.input.parse(req.body);
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const updated = await storage.updateEnrollment(id, input);
       res.json(updated);
     } catch (e) {
@@ -119,21 +138,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post(api.documents.upload.path, requireAuth, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const input = api.documents.upload.input.parse(req.body);
-      
-      // Delete existing document of the same type if it exists
-      const existingDocs = await storage.getDocuments(id);
-      const existingDoc = existingDocs.find(d => d.type === input.type);
-      if (existingDoc) {
-        await storage.deleteDocument(existingDoc.id);
-      }
 
       // Mock OCR Data based on document type
       let ocrData = null;
       if (input.type === 'cpf') {
         ocrData = { extractedCpf: "123.456.789-00", valid: true };
-      } else if (input.type === 'income') {
+      } else if (input.type === 'income_proof') {
         ocrData = { extractedIncome: Math.floor(Math.random() * 3000), valid: true };
       }
 
@@ -141,7 +153,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         enrollmentId: id,
         type: input.type,
         name: input.name,
-        url: `mock-url-${Date.now()}`,
+        url: input.base64Content,
         ocrData
       });
       res.status(201).json(doc);
@@ -151,11 +163,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post(api.enrollments.submit.path, requireAuth, async (req, res) => {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id as string);
     const enrollment = await storage.getEnrollment(id);
     if (!enrollment) return res.status(404).json({ message: "Not found" });
 
-    // Mock Rules Engine
+    // Build attachment context from enrollment fields
+    if (!enrollment.incomeCategory) {
+      return res.status(422).json({ message: "Selecione a categoria de renda antes de enviar." });
+    }
+
+    const ctx: AttachmentContext = {
+      incomeCategory: enrollment.incomeCategory as IncomeCategory,
+      income: enrollment.income ?? 0,
+      monthlyExpenses: enrollment.monthlyExpenses ?? 0,
+      hasFormalEmploymentHistory: enrollment.hasFormalEmploymentHistory ?? undefined,
+      hasVariableIncome: enrollment.hasVariableIncome ?? undefined,
+      isCompanyActive: enrollment.isCompanyActive ?? undefined,
+      hasProLabore: enrollment.hasProLabore ?? undefined,
+    };
+
+    const docs = await storage.getDocuments(id);
+    const uploadedKeys = docs.map((d) => d.type);
+    const validation = validateAttachments(ctx, uploadedKeys);
+    if (!validation.valid) {
+      return res.status(422).json({ message: validation.missingMessage, missing: validation.missingRequired.map(a => a.label) });
+    }
+
+    // Eligibility rules engine
     let systemDecision = "Elegível";
     let status = "in_analysis";
 
@@ -167,6 +201,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const updated = await storage.updateEnrollmentStatus(id, status, systemDecision);
     res.json(updated);
+  });
+
+  // DELETE /api/documents/:docId – remove a single uploaded file
+  app.delete(api.documents.delete.path, requireAuth, async (req, res) => {
+    try {
+      const docId = parseInt(req.params.docId as string);
+      if (isNaN(docId)) {
+        return res.status(400).json({ message: 'Invalid document ID' });
+      }
+      await storage.deleteDocument(docId);
+      res.json({ message: 'Deleted' });
+    } catch (err: any) {
+      console.error('Error deleting document:', err);
+      res.status(500).json({ message: err?.message ?? 'Failed to delete document' });
+    }
+  });
+
+  // GET /api/attachments/required – returns the checklist for a given context
+  app.post(api.attachments.required.path, (req, res) => {
+    try {
+      const ctx = api.attachments.required.input.parse(req.body) as AttachmentContext;
+      const attachments = getRequiredAttachments(ctx);
+      res.json(attachments);
+    } catch {
+      res.status(400).json({ message: "Parâmetros inválidos" });
+    }
+  });
+
+  // POST /api/enrollments/:id/validate-attachments – pre-flight check without submitting
+  app.post(api.attachments.validate.path, requireAuth, async (req, res) => {
+    const id = parseInt(req.params.id as string);
+    const enrollment = await storage.getEnrollment(id);
+    if (!enrollment || !enrollment.incomeCategory) {
+      return res.json({ valid: false, missingMessage: "Categoria de renda não selecionada.", missing: [] });
+    }
+    const ctx: AttachmentContext = {
+      incomeCategory: enrollment.incomeCategory as IncomeCategory,
+      income: enrollment.income ?? 0,
+      monthlyExpenses: enrollment.monthlyExpenses ?? 0,
+      hasFormalEmploymentHistory: enrollment.hasFormalEmploymentHistory ?? undefined,
+      hasVariableIncome: enrollment.hasVariableIncome ?? undefined,
+      isCompanyActive: enrollment.isCompanyActive ?? undefined,
+      hasProLabore: enrollment.hasProLabore ?? undefined,
+    };
+    const docs = await storage.getDocuments(id);
+    const result = validateAttachments(ctx, docs.map((d) => d.type));
+    res.json({ valid: result.valid, missingMessage: result.missingMessage, missing: result.missingRequired.map(a => a.label) });
   });
 
   // Admin Routes
@@ -182,7 +263,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.patch(api.admin.updateStatus.path, requireAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.id as string);
       const { status } = api.admin.updateStatus.input.parse(req.body);
       const updated = await storage.updateEnrollmentStatus(id, status);
       res.json(updated);
@@ -204,11 +285,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Seed Data for Prototype
   async function seedDatabase() {
-    const users = await storage.getUserByUsername('admin');
-    if (!users) {
-      await storage.createUser({ username: 'admin', password: '123', role: 'admin' });
-      const student1 = await storage.createUser({ username: 'aluno', password: '123', role: 'student' });
-      const student2 = await storage.createUser({ username: 'maria', password: '123', role: 'student' });
+    const existingAdmin = await storage.getUserByUsername('admin');
+    if (!existingAdmin) {
+      const hashPw = (pw: string) => bcrypt.hash(pw, 10);
+      await storage.createUser({ username: 'admin', password: await hashPw('123'), role: 'admin' });
+      const student1 = await storage.createUser({ username: 'aluno', password: await hashPw('123'), role: 'student' });
+      const student2 = await storage.createUser({ username: 'maria', password: await hashPw('123'), role: 'student' });
 
       const e1 = await storage.createEnrollment({
         studentId: student1.id,
@@ -219,9 +301,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
       await storage.updateEnrollmentStatus(e1.id, 'in_analysis', 'Elegível: Renda dentro do limite');
       
-      await storage.createDocument({ enrollmentId: e1.id, type: 'rg', name: 'rg_frente.png', url: 'mock' });
+      await storage.createDocument({ enrollmentId: e1.id, type: 'rg', name: 'rg_frente.png', url: 'mock', ocrData: null });
       await storage.createDocument({ enrollmentId: e1.id, type: 'cpf', name: 'cpf.pdf', url: 'mock', ocrData: { extractedCpf: "111.222.333-44", valid: true } });
-      await storage.createDocument({ enrollmentId: e1.id, type: 'income', name: 'holerite.pdf', url: 'mock', ocrData: { extractedIncome: 1500, valid: true } });
+      await storage.createDocument({ enrollmentId: e1.id, type: 'income_proof', name: 'holerite.pdf', url: 'mock', ocrData: { extractedIncome: 1500, valid: true } });
 
       const e2 = await storage.createEnrollment({
         studentId: student2.id,

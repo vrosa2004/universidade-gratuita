@@ -14,13 +14,13 @@ export default function StudentDashboard() {
   const getStatusDisplay = (status?: string) => {
     switch(status) {
       case 'approved':
-        return { color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle2, text: 'Approved! Welcome!' };
+        return { color: 'bg-green-100 text-green-800 border-green-200', icon: CheckCircle2, text: 'Aprovado! Bem-vindo!' };
       case 'rejected':
-        return { color: 'bg-red-100 text-red-800 border-red-200', icon: XCircle, text: 'Application Rejected' };
+        return { color: 'bg-red-100 text-red-800 border-red-200', icon: XCircle, text: 'Inscrição Rejeitada' };
       case 'in_analysis':
-        return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Clock, text: 'Under Review' };
+        return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Clock, text: 'Em Análise' };
       default:
-        return { color: 'bg-amber-100 text-amber-800 border-amber-200', icon: AlertCircle, text: 'Pending Submission' };
+        return { color: 'bg-amber-100 text-amber-800 border-amber-200', icon: AlertCircle, text: 'Aguardando Envio' };
     }
   };
 
@@ -44,8 +44,8 @@ export default function StudentDashboard() {
           className="space-y-8"
         >
           <div>
-            <h1 className="text-3xl font-display font-bold text-foreground">Student Portal</h1>
-            <p className="text-muted-foreground mt-1">Track your university application status</p>
+            <h1 className="text-3xl font-display font-bold text-foreground">Portal do Estudante</h1>
+            <p className="text-muted-foreground mt-1">Acompanhe o status da sua inscrição universitária</p>
           </div>
 
           {isLoading ? (
@@ -63,13 +63,13 @@ export default function StudentDashboard() {
                 <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
                   <FileText className="h-10 w-10 text-primary" />
                 </div>
-                <h2 className="text-2xl font-bold font-display mb-2">Start Your Application</h2>
+                <h2 className="text-2xl font-bold font-display mb-2">Inicie sua Inscrição</h2>
                 <p className="text-muted-foreground max-w-md mx-auto mb-8">
-                  You haven't started your enrollment process yet. Complete your profile and upload the required documents to apply for the free university program.
+                  Você ainda não iniciou seu processo de inscrição. Complete seu perfil e envie os documentos obrigatórios para se candidatar ao programa de universidade gratuita.
                 </p>
                 <Link href="/student/enroll">
                   <Button size="lg" className="rounded-xl px-8 h-14 text-lg shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-1 transition-all">
-                    Begin Enrollment <ArrowRight className="ml-2 h-5 w-5" />
+                    Iniciar Inscrição <ArrowRight className="ml-2 h-5 w-5" />
                   </Button>
                 </Link>
               </CardContent>
@@ -82,8 +82,8 @@ export default function StudentDashboard() {
                 <CardHeader className="bg-muted/50 border-b pb-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="font-display text-xl">Current Status</CardTitle>
-                      <CardDescription>Application #APP-{enrollment.id.toString().padStart(4, '0')}</CardDescription>
+                      <CardTitle className="font-display text-xl">Status Atual</CardTitle>
+                      <CardDescription>Inscrição #APP-{enrollment.id.toString().padStart(4, '0')}</CardDescription>
                     </div>
                     <Badge variant="outline" className={`px-4 py-1.5 text-sm font-medium rounded-full border ${statusInfo.color}`}>
                       <StatusIcon className="w-4 h-4 mr-2" />
@@ -96,7 +96,7 @@ export default function StudentDashboard() {
                     <div className="space-y-6">
                       <div>
                         <div className="flex justify-between text-sm mb-2 font-medium">
-                          <span>Application Progress</span>
+                          <span>Progresso da Inscrição</span>
                           <span className="text-primary">{Math.round(progressPercentage)}%</span>
                         </div>
                         <div className="w-full h-3 bg-secondary rounded-full overflow-hidden">
@@ -112,13 +112,13 @@ export default function StudentDashboard() {
                       <div className="bg-primary/5 rounded-xl p-4 flex items-start gap-4 border border-primary/10">
                         <UploadCloud className="h-6 w-6 text-primary shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="font-semibold text-primary-foreground/90 text-foreground">Action Required</h4>
+                          <h4 className="font-semibold text-primary-foreground/90 text-foreground">Ação Necessária</h4>
                           <p className="text-sm text-muted-foreground mt-1 mb-3">
-                            You need to complete your profile and upload all 5 required documents before you can submit your application for review.
+                            Você precisa completar seu perfil e enviar todos os 5 documentos obrigatórios antes de poder submeter sua inscrição para análise.
                           </p>
                           <Link href="/student/enroll">
                             <Button variant="outline" className="rounded-lg border-primary/20 text-primary hover:bg-primary/10">
-                              Continue Application
+                              Continuar Inscrição
                             </Button>
                           </Link>
                         </div>
@@ -133,9 +133,9 @@ export default function StudentDashboard() {
                         <div className="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
                         <Clock className="absolute inset-0 m-auto h-8 w-8 text-blue-500" />
                       </div>
-                      <h3 className="text-xl font-bold font-display">Application Under Review</h3>
+                      <h3 className="text-xl font-bold font-display">Inscrição em Análise</h3>
                       <p className="text-muted-foreground max-w-sm mx-auto mt-2">
-                        Our administrative team is currently reviewing your documents and verifying your eligibility. We will notify you once a decision is made.
+                        Nossa equipe administrativa está analisando seus documentos e verificando sua elegibilidade. Você será notificado assim que uma decisão for tomada.
                       </p>
                     </div>
                   )}
@@ -145,9 +145,9 @@ export default function StudentDashboard() {
                       <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
                         <CheckCircle2 className="h-12 w-12 text-green-600" />
                       </div>
-                      <h3 className="text-2xl font-bold font-display text-green-700">Congratulations!</h3>
+                      <h3 className="text-2xl font-bold font-display text-green-700">Parabéns!</h3>
                       <p className="text-muted-foreground max-w-md mx-auto mt-2">
-                        Your application has been approved. You are now officially enrolled in the Digital Free University. Check your email for next steps!
+                        Sua inscrição foi aprovada. Você agora está oficialmente matriculado na Universidade Digital Gratuita. Verifique seu e-mail para os próximos passos!
                       </p>
                     </div>
                   )}
@@ -157,9 +157,9 @@ export default function StudentDashboard() {
                       <div className="w-24 h-24 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
                         <XCircle className="h-12 w-12 text-red-600" />
                       </div>
-                      <h3 className="text-2xl font-bold font-display text-red-700">Application Not Approved</h3>
+                      <h3 className="text-2xl font-bold font-display text-red-700">Inscrição Não Aprovada</h3>
                       <p className="text-muted-foreground max-w-md mx-auto mt-2">
-                        Unfortunately, your application did not meet the eligibility criteria for the free university program at this time.
+                        Infelizmente, sua inscrição não atendeu aos critérios de elegibilidade para o programa de universidade gratuita neste momento.
                       </p>
                     </div>
                   )}
@@ -186,28 +186,28 @@ export default function StudentDashboard() {
               {/* Profile Summary Card */}
               <Card className="border-0 shadow-lg shadow-black/5 rounded-2xl h-fit">
                 <CardHeader>
-                  <CardTitle className="font-display text-lg">Profile Summary</CardTitle>
+                  <CardTitle className="font-display text-lg">Resumo do Perfil</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Full Name</p>
-                    <p className="font-medium">{enrollment.name || 'Not provided'}</p>
+                    <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Nome Completo</p>
+                    <p className="font-medium">{enrollment.name || 'Não informado'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">CPF</p>
-                    <p className="font-medium">{enrollment.cpf || 'Not provided'}</p>
+                    <p className="font-medium">{enrollment.cpf || 'Não informado'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Income</p>
-                    <p className="font-medium">{enrollment.income ? `R$ ${enrollment.income.toLocaleString()}` : 'Not provided'}</p>
+                    <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Renda</p>
+                    <p className="font-medium">{enrollment.income ? `R$ ${enrollment.income.toLocaleString()}` : 'Não informado'}</p>
                   </div>
                   <div className="pt-4 border-t">
                     <div className="flex justify-between items-center mb-2">
-                      <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Documents</p>
+                      <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">Documentos</p>
                       <Badge variant="secondary" className="rounded-full">{uploadedDocsCount}/5</Badge>
                     </div>
                     <Link href="/student/enroll">
-                      <Button variant="link" className="px-0 text-primary h-auto">Manage Documents &rarr;</Button>
+                      <Button variant="link" className="px-0 text-primary h-auto">Gerenciar Documentos &rarr;</Button>
                     </Link>
                   </div>
                 </CardContent>

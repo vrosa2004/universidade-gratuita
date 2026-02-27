@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { insertUserSchema, insertEnrollmentSchema, insertDocumentSchema, users, enrollments, documents } from './schema';
+import { insertUserSchema, insertEnrollmentSchema, insertDocumentSchema, users, enrollments, documents, DOCUMENT_TYPE_VALUES } from './schema';
+import type { AttachmentContext } from './attachments';
+import { INCOME_CATEGORIES } from './attachments';
+
+export type { AttachmentContext };
+
+const incomeCategoryEnum = Object.keys(INCOME_CATEGORIES) as [keyof typeof INCOME_CATEGORIES, ...(keyof typeof INCOME_CATEGORIES)[]];
 
 export const api = {
   auth: {
@@ -74,12 +80,50 @@ export const api = {
       method: 'POST' as const,
       path: '/api/enrollments/:id/documents' as const,
       input: z.object({
-        type: z.enum(['rg', 'cpf', 'residence', 'transcript', 'income']),
+        type: z.enum(DOCUMENT_TYPE_VALUES),
         name: z.string(),
         base64Content: z.string()
       }),
       responses: {
         201: z.custom<typeof documents.$inferSelect>(),
+      }
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/documents/:docId' as const,
+      responses: {
+        200: z.object({ message: z.string() })
+      }
+    }
+  },
+  attachments: {
+    required: {
+      method: 'POST' as const,
+      path: '/api/attachments/required' as const,
+      input: z.object({
+        incomeCategory: z.enum(incomeCategoryEnum),
+        income: z.number().default(0),
+        monthlyExpenses: z.number().default(0),
+        hasFormalEmploymentHistory: z.boolean().optional(),
+        hasVariableIncome: z.boolean().optional(),
+        isCompanyActive: z.boolean().optional(),
+        hasProLabore: z.boolean().optional(),
+      }),
+      responses: {
+        200: z.array(z.object({
+          key: z.string(),
+          label: z.string(),
+          required: z.boolean(),
+          condition: z.string().optional(),
+          group: z.string().optional(),
+        }))
+      }
+    },
+    validate: {
+      method: 'POST' as const,
+      path: '/api/enrollments/:id/validate-attachments' as const,
+      responses: {
+        200: z.object({ valid: z.boolean(), missingMessage: z.string(), missing: z.array(z.string()) })
       }
     }
   },

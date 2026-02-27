@@ -19,8 +19,8 @@ export function AdminSidebar() {
   const { logout, user } = useAuth();
 
   const menuItems = [
-    { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-    { title: "Enrollments", url: "/admin/enrollments", icon: Users },
+    { title: "Painel", url: "/admin", icon: LayoutDashboard },
+    { title: "Inscrições", url: "/admin/enrollments", icon: Users },
   ];
 
   return (
@@ -28,13 +28,13 @@ export function AdminSidebar() {
       <SidebarHeader className="h-16 flex items-center px-4 border-b">
         <Link href="/admin" className="flex items-center gap-2 text-primary">
           <GraduationCap className="h-8 w-8" />
-          <span className="font-display font-bold text-xl">Admin Portal</span>
+          <span className="font-display font-bold text-xl">Painel Admin</span>
         </Link>
       </SidebarHeader>
       
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Management</SidebarGroupLabel>
+          <SidebarGroupLabel>Gerenciamento</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {menuItems.map((item) => {
@@ -66,12 +66,12 @@ export function AdminSidebar() {
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-medium">{user?.username}</span>
-            <span className="text-xs text-muted-foreground">Administrator</span>
+            <span className="text-xs text-muted-foreground">Administrador</span>
           </div>
         </div>
         <SidebarMenuButton onClick={() => logout()} className="text-destructive hover:text-destructive hover:bg-destructive/10">
           <LogOut className="h-4 w-4" />
-          <span>Log out</span>
+          <span>Sair</span>
         </SidebarMenuButton>
       </SidebarFooter>
     </Sidebar>

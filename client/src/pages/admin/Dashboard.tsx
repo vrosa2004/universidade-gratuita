@@ -18,17 +18,17 @@ export default function AdminDashboard() {
   };
 
   const chartData = stats ? [
-    { name: 'Pending Docs', value: stats.pending, color: COLORS.pending },
-    { name: 'In Analysis', value: stats.inAnalysis, color: COLORS.inAnalysis },
-    { name: 'Approved', value: stats.approved, color: COLORS.approved },
-    { name: 'Rejected', value: stats.rejected, color: COLORS.rejected },
+    { name: 'Docs Pendentes', value: stats.pending, color: COLORS.pending },
+    { name: 'Em Análise', value: stats.inAnalysis, color: COLORS.inAnalysis },
+    { name: 'Aprovados', value: stats.approved, color: COLORS.approved },
+    { name: 'Rejeitados', value: stats.rejected, color: COLORS.rejected },
   ].filter(d => d.value > 0) : [];
 
   const statCards = [
-    { title: "Total Applications", value: stats?.total || 0, icon: Users, color: "text-primary", bg: "bg-primary/10" },
-    { title: "Under Review", value: stats?.inAnalysis || 0, icon: Clock, color: "text-blue-600", bg: "bg-blue-100" },
-    { title: "Approved", value: stats?.approved || 0, icon: CheckCircle2, color: "text-green-600", bg: "bg-green-100" },
-    { title: "Rejected", value: stats?.rejected || 0, icon: XCircle, color: "text-red-600", bg: "bg-red-100" },
+    { title: "Total de Inscrições", value: stats?.total || 0, icon: Users, color: "text-primary", bg: "bg-primary/10" },
+    { title: "Em Análise", value: stats?.inAnalysis || 0, icon: Clock, color: "text-blue-600", bg: "bg-blue-100" },
+    { title: "Aprovados", value: stats?.approved || 0, icon: CheckCircle2, color: "text-green-600", bg: "bg-green-100" },
+    { title: "Rejeitados", value: stats?.rejected || 0, icon: XCircle, color: "text-red-600", bg: "bg-red-100" },
   ];
 
   return (
@@ -38,7 +38,7 @@ export default function AdminDashboard() {
         <div className="flex flex-col flex-1 overflow-hidden">
           <header className="flex items-center h-16 px-4 border-b bg-background shrink-0">
             <SidebarTrigger />
-            <h2 className="ml-4 font-display font-semibold text-lg">Dashboard Overview</h2>
+            <h2 className="ml-4 font-display font-semibold text-lg">Visão Geral</h2>
           </header>
           
           <main className="flex-1 overflow-auto p-4 md:p-8">
@@ -71,7 +71,7 @@ export default function AdminDashboard() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <Card className="border-0 shadow-lg shadow-black/5 rounded-2xl">
                     <CardHeader>
-                      <CardTitle className="font-display">Application Distribution</CardTitle>
+                      <CardTitle className="font-display">Distribuição de Inscrições</CardTitle>
                     </CardHeader>
                     <CardContent className="h-[300px] flex items-center justify-center">
                       {chartData.length > 0 ? (
@@ -97,7 +97,7 @@ export default function AdminDashboard() {
                           </PieChart>
                         </ResponsiveContainer>
                       ) : (
-                        <p className="text-muted-foreground">No data available yet.</p>
+                        <p className="text-muted-foreground">Nenhum dado disponível ainda.</p>
                       )}
                     </CardContent>
                   </Card>
@@ -105,22 +105,22 @@ export default function AdminDashboard() {
                   {/* System Insights Card */}
                   <Card className="border-0 shadow-lg shadow-black/5 rounded-2xl bg-gradient-to-br from-primary/5 to-transparent">
                     <CardHeader>
-                      <CardTitle className="font-display">System Insights</CardTitle>
+                      <CardTitle className="font-display">Informações do Sistema</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-6">
                         <div className="flex gap-4 items-start">
                           <div className="bg-white p-2 rounded-lg shadow-sm shrink-0">🤖</div>
                           <div>
-                            <h4 className="font-semibold text-foreground">Automated OCR Active</h4>
-                            <p className="text-sm text-muted-foreground mt-1">The system is currently extracting data from uploaded documents to assist with verification.</p>
+                            <h4 className="font-semibold text-foreground">OCR Automatizado Ativo</h4>
+                            <p className="text-sm text-muted-foreground mt-1">O sistema está extraindo dados dos documentos enviados para auxiliar na verificação.</p>
                           </div>
                         </div>
                         <div className="flex gap-4 items-start">
                           <div className="bg-white p-2 rounded-lg shadow-sm shrink-0">📏</div>
                           <div>
-                            <h4 className="font-semibold text-foreground">Eligibility Rules</h4>
-                            <p className="text-sm text-muted-foreground mt-1">Current auto-decision threshold: Income &lt; R$ 2000 implies eligible. Manual override required for edge cases.</p>
+                            <h4 className="font-semibold text-foreground">Regras de Elegibilidade</h4>
+                            <p className="text-sm text-muted-foreground mt-1">Limite automático: Renda &lt; R$ 2.000 indica elegibilidade. Revisão manual necessária para casos especiais.</p>
                           </div>
                         </div>
                       </div>
