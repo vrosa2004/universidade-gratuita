@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: universidade-gratuita
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: universidade-gratuita-db
+          property: connectionString
+
+databases:
+  - name: universidade-gratuita-db
+    databaseName: unidigital
+    user: postgres
+    region: oregon
+    plan: free
