@@ -36,8 +36,8 @@ export default function AdminEnrollmentReview() {
 
   const getSystemRecommendation = () => {
     if (!enrollment.income) return { text: "Dados insuficientes", color: "text-amber-600", bg: "bg-amber-100" };
-    if (enrollment.income < 2000) return { text: "Elegível (Renda < R$ 2.000)", color: "text-green-600", bg: "bg-green-100" };
-    return { text: "Não Elegível (Renda ≥ R$ 2.000)", color: "text-red-600", bg: "bg-red-100" };
+    if (enrollment.income <= 2000) return { text: "Elegível (Renda abaixo ou igual a R$ 2.000)", color: "text-green-600", bg: "bg-green-100" };
+    return { text: "Não Elegível (Renda acima de R$ 2.000)", color: "text-red-600", bg: "bg-red-100" };
   };
 
   const recommendation = getSystemRecommendation();
