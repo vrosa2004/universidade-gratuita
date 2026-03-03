@@ -17,7 +17,6 @@ export default function AuthPage() {
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"student" | "admin">("student");
 
   const handleAuth = async (action: 'login' | 'register') => {
     try {
@@ -26,9 +25,9 @@ export default function AuthPage() {
         toast({ title: "Bem-vindo de volta!" });
         setLocation(user.role === 'admin' ? '/admin' : '/student');
       } else {
-        const user = await register({ username, password, role });
+        await register({ username, password });
         toast({ title: "Conta criada com sucesso!" });
-        setLocation(user.role === 'admin' ? '/admin' : '/student');
+        setLocation('/student');
       }
     } catch (error: any) {
       toast({
@@ -150,27 +149,6 @@ export default function AuthPage() {
                     />
                   </div>
                   
-                  {/* Demo purpose: allow selecting role */}
-                  <div className="space-y-2 pt-2">
-                    <Label className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Tipo de Conta (Demo)</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button 
-                        variant={role === 'student' ? 'default' : 'outline'} 
-                        className={`rounded-lg h-10 ${role === 'student' ? 'shadow-md' : ''}`}
-                        onClick={() => setRole('student')}
-                      >
-                        Estudante
-                      </Button>
-                      <Button 
-                        variant={role === 'admin' ? 'default' : 'outline'} 
-                        className={`rounded-lg h-10 ${role === 'admin' ? 'shadow-md bg-slate-800 hover:bg-slate-700' : ''}`}
-                        onClick={() => setRole('admin')}
-                      >
-                        Admin
-                      </Button>
-                    </div>
-                  </div>
-
                   <Button 
                     className="w-full h-12 rounded-xl text-md font-semibold mt-4 shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200" 
                     onClick={() => handleAuth('register')}

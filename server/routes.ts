@@ -76,7 +76,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ message: "Username already exists" });
       }
       const hashedPassword = await bcrypt.hash(input.password, 10);
-      const user = await storage.createUser({ ...input, password: hashedPassword });
+      // Public registration is always student — admin accounts can only be created by an existing admin
+      const user = await storage.createUser({ ...input, password: hashedPassword, role: 'student' });
       req.session.userId = user.id;
       res.status(201).json(user);
     } catch (e) {
@@ -129,7 +130,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const input = api.enrollments.update.input.parse(req.body);
       const id = parseInt(req.params.id as string);
-      const updated = await storage.updateEnrollment(id, input);
+      // Recalculate perCapitaIncome whenever income or householdSize changes
+      const existing = await storage.getEnrollment(id);
+      const income = (input as any).income ?? existing?.income;
+      const householdSize = (input as any).householdSize ?? existing?.householdSize;
+      const perCapitaIncome =
+        income != null && householdSize != null && householdSize > 0
+          ? Math.round(income / householdSize)
+          : existing?.perCapitaIncome ?? null;
+      const updated = await storage.updateEnrollment(id, { ...(input as any), perCapitaIncome });
       res.json(updated);
     } catch (e) {
       res.status(400).json({ message: "Bad request" });
@@ -193,10 +202,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     let systemDecision = "Elegível";
     let status = "in_analysis";
 
-    if (!enrollment.income || enrollment.income >= 2000) {
-      systemDecision = "Não elegível: Renda superior a R$ 2000";
+    const effectiveIncome = enrollment.perCapitaIncome ?? enrollment.income;
+    const incomeLabel = enrollment.perCapitaIncome != null
+      ? `Renda per capita (R$ ${enrollment.income} ÷ ${enrollment.householdSize} pessoas = R$ ${enrollment.perCapitaIncome})`
+      : `Renda familiar bruta R$ ${enrollment.income}`;
+
+    if (!effectiveIncome || effectiveIncome >= 2000) {
+      systemDecision = `Não elegível: ${incomeLabel} – valor per capita acima de R$ 2.000`;
     } else {
-      systemDecision = "Elegível: Renda dentro do limite";
+      systemDecision = `Elegível: ${incomeLabel} – valor per capita dentro do limite`;
     }
 
     const updated = await storage.updateEnrollmentStatus(id, status, systemDecision);
@@ -267,6 +281,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { status } = api.admin.updateStatus.input.parse(req.body);
       const updated = await storage.updateEnrollmentStatus(id, status);
       res.json(updated);
+    } catch (e) {
+      res.status(400).json({ message: "Bad request" });
+    }
+  });
+
+  // Admin: create a new admin user
+  app.post(api.admin.createUser.path, requireAdmin, async (req, res) => {
+    try {
+      const input = api.admin.createUser.input.parse(req.body);
+      const existing = await storage.getUserByUsername(input.username);
+      if (existing) {
+        return res.status(400).json({ message: "Nome de usuário já existe" });
+      }
+      const hashedPassword = await bcrypt.hash(input.password, 10);
+      const user = await storage.createUser({ username: input.username, password: hashedPassword, role: 'admin' });
+      res.status(201).json(user);
     } catch (e) {
       res.status(400).json({ message: "Bad request" });
     }

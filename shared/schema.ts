@@ -34,6 +34,10 @@ export const enrollments = pgTable("enrollments", {
   isCompanyActive: boolean("is_company_active"),
   /** (business_owner) Actually withdraws pro-labore */
   hasProLabore: boolean("has_pro_labore"),
+  /** Number of people living in the household (used for per-capita income) */
+  householdSize: integer("household_size"),
+  /** Calculated as income / householdSize – saved for admin review */
+  perCapitaIncome: integer("per_capita_income"),
   systemDecision: text("system_decision"),
   createdAt: timestamp("created_at").defaultNow(),
 });

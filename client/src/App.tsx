@@ -13,6 +13,7 @@ import StudentEnrollment from "@/pages/student/Enrollment";
 import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminEnrollmentsList from "@/pages/admin/EnrollmentsList";
 import AdminEnrollmentReview from "@/pages/admin/EnrollmentReview";
+import AdminUsers from "@/pages/admin/AdminUsers";
 
 // Protected Route Wrapper
 function ProtectedRoute({ component: Component, role }: { component: React.ComponentType, role: 'student' | 'admin' }) {
@@ -65,6 +66,9 @@ function Router() {
       </Route>
       <Route path="/admin/enrollments/:id">
         {() => <ProtectedRoute role="admin" component={AdminEnrollmentReview} />}
+      </Route>
+      <Route path="/admin/users">
+        {() => <ProtectedRoute role="admin" component={AdminUsers} />}
       </Route>
 
       <Route component={NotFound} />

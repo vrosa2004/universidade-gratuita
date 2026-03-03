@@ -155,6 +155,15 @@ export const api = {
           rejected: z.number()
         })
       }
+    },
+    createUser: {
+      method: 'POST' as const,
+      path: '/api/admin/users' as const,
+      input: z.object({ username: z.string().min(3), password: z.string().min(4) }),
+      responses: {
+        201: z.custom<typeof users.$inferSelect>(),
+        400: z.object({ message: z.string() }),
+      }
     }
   }
 };

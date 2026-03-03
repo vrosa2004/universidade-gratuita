@@ -1,6 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 
+export function useCreateAdminUser() {
+  return useMutation({
+    mutationFn: async ({ username, password }: { username: string; password: string }) => {
+      const res = await fetch(api.admin.createUser.path, {
+        method: api.admin.createUser.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Erro ao criar administrador");
+      return data;
+    },
+  });
+}
+
 export function useAdminStats() {
   return useQuery({
     queryKey: [api.admin.stats.path],

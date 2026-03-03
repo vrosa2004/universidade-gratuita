@@ -35,9 +35,29 @@ export default function AdminEnrollmentReview() {
   };
 
   const getSystemRecommendation = () => {
-    if (!enrollment.income) return { text: "Dados insuficientes", color: "text-amber-600", bg: "bg-amber-100" };
-    if (enrollment.income <= 2000) return { text: "Elegível (Renda abaixo ou igual a R$ 2.000)", color: "text-green-600", bg: "bg-green-100" };
-    return { text: "Não Elegível (Renda acima de R$ 2.000)", color: "text-red-600", bg: "bg-red-100" };
+    const perCapita = enrollment.perCapitaIncome;
+    const raw = enrollment.income;
+    const size = enrollment.householdSize;
+
+    if (!raw) return { text: "Dados insuficientes", sub: null, color: "text-amber-600", bg: "bg-amber-100" };
+
+    if (perCapita != null && size != null) {
+      const eligible = perCapita <= 2000;
+      return {
+        text: eligible ? "Elegível" : "Não Elegível",
+        sub: `R$ ${perCapita.toLocaleString('pt-BR')} per capita${eligible ? " (abaixo de R$ 2.000)" : " (acima de R$ 2.000)"}`,
+        color: eligible ? "text-green-600" : "text-red-600",
+        bg: eligible ? "bg-green-100" : "bg-red-100",
+      };
+    }
+
+    const eligible = raw <= 2000;
+    return {
+      text: eligible ? "Elegível (Renda abaixo ou igual a R$ 2.000)" : "Não Elegível (Renda acima de R$ 2.000)",
+      sub: null,
+      color: eligible ? "text-green-600" : "text-red-600",
+      bg: eligible ? "bg-green-100" : "bg-red-100",
+    };
   };
 
   const recommendation = getSystemRecommendation();
@@ -66,7 +86,7 @@ export default function AdminEnrollmentReview() {
                   <CardContent className="p-6 space-y-4">
                     <div className="flex justify-between items-center mb-6">
                       <span className="text-sm font-semibold text-muted-foreground uppercase">Status Atual</span>
-                      <Badge className="capitalize">{{ pending: 'Pendente', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status] ?? enrollment.status}</Badge>
+                      <Badge className="capitalize">{{ pending: 'Pendente', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status as string] ?? enrollment.status}</Badge>
                     </div>
                     
                     <Button 
@@ -109,6 +129,9 @@ export default function AdminEnrollmentReview() {
                       <div>
                         <p className={`font-bold text-sm ${recommendation.color}`}>Recomendação</p>
                         <p className={`text-sm mt-0.5 ${recommendation.color}`}>{recommendation.text}</p>
+                        {recommendation.sub && (
+                          <p className={`text-xs mt-1 opacity-80 ${recommendation.color}`}>{recommendation.sub}</p>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -124,7 +147,9 @@ export default function AdminEnrollmentReview() {
                       { label: 'Nome', value: enrollment.name },
                       { label: 'CPF', value: enrollment.cpf },
                       { label: 'Data de Nascimento', value: enrollment.dateOfBirth },
-                      { label: 'Renda Declarada', value: enrollment.income ? `R$ ${enrollment.income}` : null },
+                      { label: 'Renda Bruta Declarada', value: enrollment.income ? `R$ ${enrollment.income.toLocaleString('pt-BR')}` : null },
+                      { label: 'Nº de pessoas na residência', value: enrollment.householdSize ?? null },
+                      { label: 'Renda Per Capita', value: enrollment.perCapitaIncome ? `R$ ${enrollment.perCapitaIncome.toLocaleString('pt-BR')}` : null },
                       { label: 'Data de Inscrição', value: enrollment.createdAt ? format(new Date(enrollment.createdAt), 'dd/MM/yyyy HH:mm') : null },
                     ].map((item, i) => (
                       <div key={i} className="border-b last:border-0 pb-3 last:pb-0">
