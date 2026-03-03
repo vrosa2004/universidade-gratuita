@@ -32,6 +32,7 @@ interface FormData {
   cpf: string;
   dateOfBirth: string;
   income: string;
+  householdSize: string;
   monthlyExpenses: string;
   incomeCategory: IncomeCategoryKey | '';
   hasFormalEmploymentHistory: boolean | null;
@@ -91,6 +92,7 @@ export default function StudentEnrollment() {
     cpf: '',
     dateOfBirth: '',
     income: '',
+    householdSize: '',
     monthlyExpenses: '',
     incomeCategory: '',
     hasFormalEmploymentHistory: null,
@@ -106,6 +108,7 @@ export default function StudentEnrollment() {
         cpf: enrollment.cpf || '',
         dateOfBirth: enrollment.dateOfBirth || '',
         income: enrollment.income?.toString() || '',
+        householdSize: enrollment.householdSize?.toString() || '',
         monthlyExpenses: enrollment.monthlyExpenses?.toString() || '',
         incomeCategory: (enrollment.incomeCategory as IncomeCategoryKey) || '',
         hasFormalEmploymentHistory: enrollment.hasFormalEmploymentHistory ?? null,
@@ -138,6 +141,7 @@ export default function StudentEnrollment() {
         cpf: formData.cpf,
         dateOfBirth: formData.dateOfBirth,
         income: formData.income ? parseInt(formData.income) : undefined,
+        householdSize: formData.householdSize ? parseInt(formData.householdSize) : undefined,
         monthlyExpenses: formData.monthlyExpenses ? parseInt(formData.monthlyExpenses) : undefined,
         incomeCategory: formData.incomeCategory || undefined,
         hasFormalEmploymentHistory: formData.hasFormalEmploymentHistory,
@@ -291,6 +295,21 @@ export default function StudentEnrollment() {
                 <Input id="income" type="number" value={formData.income} disabled={isLocked}
                   onChange={(e) => setFormData({ ...formData, income: e.target.value })}
                   className="h-12 rounded-xl" placeholder="Ex: 1500" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="householdSize">Nº de pessoas na residência</Label>
+                <Input id="householdSize" type="number" min="1" value={formData.householdSize} disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, householdSize: e.target.value })}
+                  className="h-12 rounded-xl" placeholder="Ex: 4" />
+                {formData.income && formData.householdSize && parseInt(formData.householdSize) > 0 && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Renda per capita:{' '}
+                    <span className="font-semibold text-foreground">
+                      R$ {Math.round(parseInt(formData.income) / parseInt(formData.householdSize)).toLocaleString('pt-BR')}
+                    </span>
+                    {' '}/ pessoa
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="expenses">

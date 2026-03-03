@@ -71,6 +71,8 @@ export class MemStorage implements IStorage {
       hasVariableIncome: null,
       isCompanyActive: null,
       hasProLabore: null,
+      householdSize: null,
+      perCapitaIncome: null,
       ...insertEnrollment,
       id,
       status: 'pending',

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, LogOut, GraduationCap } from "lucide-react";
+import { LayoutDashboard, Users, LogOut, GraduationCap, ShieldPlus } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -21,6 +21,7 @@ export function AdminSidebar() {
   const menuItems = [
     { title: "Painel", url: "/admin", icon: LayoutDashboard },
     { title: "Inscrições", url: "/admin/enrollments", icon: Users },
+    { title: "Administradores", url: "/admin/users", icon: ShieldPlus },
   ];
 
   return (
