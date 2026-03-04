@@ -93,6 +93,8 @@ export interface AttachmentContext {
   income: number;
   /** Total monthly expenses including tuition in BRL */
   monthlyExpenses: number;
+  /** Total number of people in the household (includes the applicant) */
+  householdSize?: number;
   /** (unemployed) Has had a formal employment in the last 2 years */
   hasFormalEmploymentHistory?: boolean;
   /** (salaried) Receives commissions or overtime (requires 6 payslips) */
@@ -159,14 +161,19 @@ export function getRequiredAttachments(ctx: AttachmentContext): AttachmentDescri
 
     // ── Assalariado ─────────────────────────────────────────────────
     case 'salaried': {
+      const numOutros = Math.max(0, (ctx.householdSize ?? 1) - 1);
       if (ctx.hasVariableIncome === true) {
         add('payslip_6', true, undefined, 'payslips');
+        // income_proof for family members is optional — the more sent, the more accurate the per-capita
+        if (numOutros > 0) add('income_proof', false, `Envie um comprovante de renda para cada um dos ${numOutros} familiar(es) na resid\u00eancia para c\u00e1lculo mais preciso da renda per capita`);
       } else if (ctx.hasVariableIncome === false) {
         add('payslip_3', true, undefined, 'payslips');
+        if (numOutros > 0) add('income_proof', false, `Envie um comprovante de renda para cada um dos ${numOutros} familiar(es) na resid\u00eancia (o sal\u00e1rio do solicitante vem dos contracheques)`);
       } else {
-        // Not yet answered → present both as alternatives
-        add('payslip_3', false, 'Se renda fixa (sem comissões ou horas extras)', 'payslips');
-        add('payslip_6', false, 'Se houver comissão ou hora extra', 'payslips');
+        // Not yet answered \u2192 present both as alternatives
+        add('payslip_3', false, 'Se renda fixa (sem comiss\u00f5es ou horas extras)', 'payslips');
+        add('payslip_6', false, 'Se houver comiss\u00e3o ou hora extra', 'payslips');
+        if (numOutros > 0) add('income_proof', false, `Comprovante de renda dos ${numOutros} familiar(es) na resid\u00eancia`);
       }
       break;
     }
@@ -229,9 +236,12 @@ export function getRequiredAttachments(ctx: AttachmentContext): AttachmentDescri
   }
 
   // ------------------------------------------------------------------
-  // 3. Always add income_proof as required for all categories
+  // 3. income_proof: required for all non-salaried categories
+  //    (for salaried, it was handled per-member count in the case above)
   // ------------------------------------------------------------------
-  add('income_proof', true);
+  if (ctx.incomeCategory !== 'salaried') {
+    add('income_proof', true);
+  }
 
   return attachments;
 }

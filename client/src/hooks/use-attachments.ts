@@ -21,7 +21,7 @@ export function useRequiredAttachments(ctx: Partial<AttachmentContext> | null) {
       if (!res.ok) throw new Error("Falha ao carregar lista de anexos");
       return res.json();
     },
-    staleTime: 60_000,
+    staleTime: 0,
   });
 }
 

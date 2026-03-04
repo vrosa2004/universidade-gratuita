@@ -125,6 +125,7 @@ export default function StudentEnrollment() {
       incomeCategory: formData.incomeCategory as IncomeCategoryKey,
       income: parseInt(formData.income) || 0,
       monthlyExpenses: parseInt(formData.monthlyExpenses) || 0,
+      householdSize: parseInt(formData.householdSize) || 1,
       hasFormalEmploymentHistory: formData.hasFormalEmploymentHistory ?? undefined,
       hasVariableIncome: formData.hasVariableIncome ?? undefined,
       isCompanyActive: formData.isCompanyActive ?? undefined,
@@ -225,16 +226,30 @@ export default function StudentEnrollment() {
   const isFinalized = enrollment?.status === 'approved' || enrollment?.status === 'rejected';
   const isLocked = !!(enrollment && enrollment.status !== 'pending');
 
+  const isPayslip3Mode = formData.incomeCategory === 'salaried' && formData.hasVariableIncome === false;
+  const numOutrosMembros = Math.max(0, (parseInt(formData.householdSize) || 1) - 1);
+
   const missingRequired: AttachmentDescriptor[] = useMemo(() => {
     const requiredList = requiredAttachments.filter((a) => a.required);
     const satisfiedGroups = new Set<string>();
     const missing: AttachmentDescriptor[] = [];
     for (const att of requiredList) {
-      const uploaded = uploadedTypes.includes(att.key);
+      // income_proof in payslip-3 mode is always optional — never blocks submit
+      if (att.key === 'income_proof' && isPayslip3Mode) continue;
+      const typeDocs = allDocs.filter((d) => d.type === att.key);
+      let uploaded: boolean;
+      if (att.key === 'payslip_3') {
+        uploaded = typeDocs.length >= 3;
+      } else {
+        uploaded = typeDocs.length > 0;
+      }
       if (att.group) {
         if (uploaded) { satisfiedGroups.add(att.group); continue; }
         if (satisfiedGroups.has(att.group)) continue;
-        const groupOk = requiredList.filter(a => a.group === att.group).some(a => uploadedTypes.includes(a.key));
+        const groupOk = requiredList.filter(a => a.group === att.group).some(a => {
+          const docs = allDocs.filter(d => d.type === a.key);
+          return a.key === 'payslip_3' ? docs.length >= 3 : docs.length > 0;
+        });
         if (groupOk) { satisfiedGroups.add(att.group); continue; }
         if (!missing.some(m => m.group === att.group)) missing.push(att);
       } else if (!uploaded) {
@@ -243,7 +258,7 @@ export default function StudentEnrollment() {
     }
     return missing;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requiredAttachments, uploadedTypes]);
+  }, [requiredAttachments, uploadedTypes, isPayslip3Mode, numOutrosMembros]);
 
   const canSubmit =
     !!enrollment?.name && !!enrollment?.cpf &&
@@ -295,13 +310,21 @@ export default function StudentEnrollment() {
                 <Input id="income" type="number" value={formData.income} disabled={isLocked}
                   onChange={(e) => setFormData({ ...formData, income: e.target.value })}
                   className="h-12 rounded-xl" placeholder="Ex: 1500" />
+                {formData.incomeCategory !== 'salaried' && formData.income && formData.householdSize && parseInt(formData.householdSize) > 1 && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Renda total familiar estimada:{' '}
+                    <span className="font-semibold text-foreground">
+                      R$ {(parseInt(formData.income) * parseInt(formData.householdSize)).toLocaleString('pt-BR')}
+                    </span>
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="householdSize">Nº de pessoas na residência</Label>
                 <Input id="householdSize" type="number" min="1" value={formData.householdSize} disabled={isLocked}
                   onChange={(e) => setFormData({ ...formData, householdSize: e.target.value })}
                   className="h-12 rounded-xl" placeholder="Ex: 4" />
-                {formData.income && formData.householdSize && parseInt(formData.householdSize) > 0 && (
+                {formData.incomeCategory !== 'salaried' && formData.income && formData.householdSize && parseInt(formData.householdSize) > 0 && (
                   <p className="text-xs text-muted-foreground pt-1">
                     Renda per capita:{' '}
                     <span className="font-semibold text-foreground">
@@ -450,7 +473,14 @@ export default function StudentEnrollment() {
                   <div className="grid grid-cols-1 gap-3">
                     {requiredAttachments.map((att) => {
                       const typeDocs = allDocs.filter((d) => d.type === att.key);
-                      const isUploaded = typeDocs.length > 0;
+                      // payslip_3 requires exactly 3 files; treat as complete only when 3 are uploaded
+                      const isPayslip3 = att.key === 'payslip_3';
+                      const isIncomeProofFamilia = att.key === 'income_proof' && isPayslip3Mode && numOutrosMembros > 0;
+                      const isUploaded = isPayslip3
+                        ? typeDocs.length >= 3
+                        : isIncomeProofFamilia
+                        ? typeDocs.length >= numOutrosMembros
+                        : typeDocs.length > 0;
                       return (
                         <div
                           key={att.key}
@@ -478,9 +508,44 @@ export default function StudentEnrollment() {
                                   ? <Badge variant="destructive" className="text-[10px] h-4 px-1.5">Obrigatório</Badge>
                                   : <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-amber-400 text-amber-700">Condicional</Badge>}
                                 {att.group && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Alternativo</Badge>}
+                                {isPayslip3 && (
+                                  <Badge
+                                    variant={isUploaded ? 'default' : 'outline'}
+                                    className={`text-[10px] h-4 px-1.5 ${isUploaded ? 'bg-green-600' : typeDocs.length > 0 ? 'border-amber-400 text-amber-700' : ''}`}
+                                  >
+                                    {typeDocs.length}/3 enviados
+                                  </Badge>
+                                )}
+                                {isIncomeProofFamilia && (
+                                  <Badge
+                                    variant={isUploaded ? 'default' : 'outline'}
+                                    className={`text-[10px] h-4 px-1.5 ${isUploaded ? 'bg-green-600' : typeDocs.length > 0 ? 'border-amber-400 text-amber-700' : ''}`}
+                                  >
+                                    {typeDocs.length}/{numOutrosMembros} familiar(es)
+                                  </Badge>
+                                )}
                               </div>
                               {att.condition && <p className="text-xs text-muted-foreground mt-0.5 italic">{att.condition}</p>}
-                              {!isUploaded && <p className="text-xs text-muted-foreground mt-0.5">Nenhum arquivo enviado</p>}
+                              {isPayslip3 && !isUploaded && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {typeDocs.length === 0
+                                    ? 'Envie os 3 contracheques dos últimos 3 meses. A média salarial será calculada automaticamente.'
+                                    : `${typeDocs.length}/3 enviados. Ainda faltam ${3 - typeDocs.length} contracheque(s).`}
+                                </p>
+                              )}
+                              {isPayslip3 && (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                                  <strong>Atenção:</strong> não inclua seu próprio salário no campo de renda familiar. Seu salário será calculado automaticamente com base na média dos 3 contracheques enviados.
+                                </p>
+                              )}
+                              {isIncomeProofFamilia && !isUploaded && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {typeDocs.length === 0
+                                    ? `Envie ${numOutrosMembros} comprovante(s) de renda — um para cada familiar que mora com você (excluindo você).`
+                                    : `${typeDocs.length}/${numOutrosMembros} enviado(s). Ainda faltam ${numOutrosMembros - typeDocs.length} comprovante(s).`}
+                                </p>
+                              )}
+                              {!isPayslip3 && !isIncomeProofFamilia && !isUploaded && <p className="text-xs text-muted-foreground mt-0.5">Nenhum arquivo enviado</p>}
                             </div>
                             {!isFinalized ? (
                               <Button

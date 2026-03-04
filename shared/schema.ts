@@ -91,3 +91,11 @@ export type Enrollment = typeof enrollments.$inferSelect;
 export type InsertEnrollment = z.infer<typeof insertEnrollmentSchema>;
 export type Document = typeof documents.$inferSelect;
 export type InsertDocument = z.infer<typeof insertDocumentSchema>;
+
+// ── Eligibility thresholds (shared between client and server) ────────────────
+/** Salário mínimo federal vigente (2026) */
+export const SALARIO_MINIMO = 1_518.0;
+/** Multiplicador: renda máxima = N × salário mínimo */
+export const LIMITE_MULTIPLICADOR = 4;
+/** Teto de renda per capita para elegibilidade = SALARIO_MINIMO × LIMITE_MULTIPLICADOR */
+export const LIMITE_RENDA_PER_CAPITA = SALARIO_MINIMO * LIMITE_MULTIPLICADOR; // R$ 6.072
