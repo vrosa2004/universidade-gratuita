@@ -49,10 +49,14 @@ async function buildAll() {
     entryPoints: ["server/index.ts"],
     platform: "node",
     bundle: true,
-    format: "esm",
-    outfile: "dist/index.js",
+    format: "cjs",
+    outfile: "dist/index.cjs",
+    banner: {
+      js: `const __importMetaUrl = require('url').pathToFileURL(__filename).href;`,
+    },
     define: {
       "process.env.NODE_ENV": '"production"',
+      "import.meta.url": "__importMetaUrl",
     },
     minify: true,
     external: externals,
