@@ -1,11 +1,16 @@
 import { useRoute, useLocation } from "wouter";
+import { LIMITE_RENDA_PER_CAPITA, LIMITE_MULTIPLICADOR } from "@shared/schema";
 import { AdminSidebar } from "@/components/layout/AdminSidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { useAdminEnrollments, useUpdateEnrollmentStatus } from "@/hooks/use-admin";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, CheckCircle2, XCircle, FileText, BrainCircuit, AlertTriangle, ArrowLeft, Eye } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import {
+  Loader2, CheckCircle2, XCircle, FileText, BrainCircuit,
+  AlertTriangle, ArrowLeft, Eye, TrendingUp, Users, ShieldCheck, AlertCircle, Clock,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 
@@ -23,6 +28,77 @@ export default function AdminEnrollmentReview() {
   if (isLoading) return <div className="h-screen flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (!enrollment) return <div className="p-8 text-center">Inscrição não encontrada</div>;
 
+  // ── Family income summary (computed client-side for display) ─────────────────────────────────────────────────
+  const INCOME_DOC_TYPES_CLIENT = new Set([
+    "income_proof", "payslip_3", "payslip_6", "income_justification",
+    "rural_declaration", "fishing_declaration", "inss_extract", "decore", "pro_labore_3",
+  ]);
+  const householdSize = enrollment.householdSize ?? 1;
+  const allDocs: any[] = enrollment.documents ?? [];
+  const incomeDocs = allDocs.filter((d) => INCOME_DOC_TYPES_CLIENT.has(d.type));
+
+  // ── Payslip-3 mode: 3 contracheques → média = salário do solicitante ──────
+  const payslip3Docs = allDocs.filter((d) => d.type === "payslip_3");
+  const isPayslip3Mode = payslip3Docs.length > 0;
+  const validPayslip3 = payslip3Docs.filter((d: any) => {
+    const ocr = d.ocrData;
+    return ocr && ocr.status !== "REVISAO_MANUAL" && typeof ocr.rendaTotal === "number" && ocr.rendaTotal > 0;
+  });
+
+  const validIncomeDocs = incomeDocs.filter((d) => {
+    const ocr = d.ocrData;
+    return ocr && ocr.status !== "REVISAO_MANUAL" && typeof ocr.rendaTotal === "number" && ocr.rendaTotal > 0;
+  });
+
+  // Family income docs: todos os income docs EXCETO payslip_3 (comprovantes dos outros membros)
+  const familyIncomeDocs: any[] = isPayslip3Mode
+    ? allDocs.filter((d: any) => INCOME_DOC_TYPES_CLIENT.has(d.type) && d.type !== "payslip_3")
+    : [];
+  const validFamilyIncomeDocs = familyIncomeDocs.filter((d: any) => {
+    const ocr = d.ocrData;
+    return ocr && ocr.status !== "REVISAO_MANUAL" && typeof ocr.rendaTotal === "number" && ocr.rendaTotal > 0;
+  });
+
+  // Progress / completeness
+  const numOutrosMembros = Math.max(0, householdSize - 1);
+  const incomeDocsSubmitted = isPayslip3Mode ? payslip3Docs.length : incomeDocs.length;
+  const incomeDocsRequired  = isPayslip3Mode ? 3 : householdSize;
+  const incomeComplete = isPayslip3Mode
+    ? payslip3Docs.length >= 3  // family docs are optional in payslip-3 mode
+    : incomeDocsSubmitted >= 1; // optional docs — just needs at least one
+  const ocrComplete = isPayslip3Mode
+    ? validPayslip3.length >= 3 && (numOutrosMembros === 0 || validFamilyIncomeDocs.length >= numOutrosMembros)
+    : validIncomeDocs.length >= householdSize;
+
+  // Per-capita calculation
+  // Payslip-3: perCapita = (mediaAluno + mediaFamilia) / 2
+  // Both modes: perCapita = totalFamilyIncome / householdSize (missing members = R$ 0)
+  let mediaAluno: number | null = null;
+  let mediaFamilia: number | null = null; // avg per family member, for display only
+  let familyTotalP3 = 0; // sum of valid family income docs in payslip-3 mode
+  let totalFamilyIncomeStd = 0;
+  let perCapitaComputed: number | null = null;
+
+  if (isPayslip3Mode) {
+    if (validPayslip3.length >= 3) {
+      mediaAluno = validPayslip3.slice(0, 3).reduce((s: number, d: any) => s + (d.ocrData.rendaTotal as number), 0) / 3;
+    }
+    familyTotalP3 = validFamilyIncomeDocs.reduce((s: number, d: any) => s + (d.ocrData.rendaTotal as number), 0);
+    if (validFamilyIncomeDocs.length > 0) {
+      mediaFamilia = familyTotalP3 / validFamilyIncomeDocs.length;
+    }
+    if (mediaAluno != null) {
+      // Total = student income + sum of available family docs; missing members = R$ 0
+      perCapitaComputed = Math.round((mediaAluno + familyTotalP3) / householdSize);
+    }
+  } else {
+    totalFamilyIncomeStd = validIncomeDocs.reduce((sum: number, d: any) => sum + (d.ocrData.rendaTotal as number), 0);
+    // Compute per capita with partial docs (missing members count as R$ 0 in total)
+    if (validIncomeDocs.length > 0) {
+      perCapitaComputed = Math.round(totalFamilyIncomeStd / householdSize);
+    }
+  }
+
   const handleStatusChange = async (status: 'approved' | 'rejected' | 'pending') => {
     try {
       await updateStatusMutation.mutateAsync({ id, status });
@@ -35,25 +111,56 @@ export default function AdminEnrollmentReview() {
   };
 
   const getSystemRecommendation = () => {
-    const perCapita = enrollment.perCapitaIncome;
-    const raw = enrollment.income;
-    const size = enrollment.householdSize;
+    if (!incomeComplete) {
+      return {
+        text: `Aguardando comprovantes de renda`,
+        sub: isPayslip3Mode
+          ? `${incomeDocsSubmitted} de 3 contracheque(s) enviado(s). Renda per capita indisponível.`
+          : `${incomeDocsSubmitted} de ${householdSize} membro(s) com comprovante enviado. Renda per capita indisponível.`,
+        color: "text-amber-600",
+        bg: "bg-amber-100",
+      };
+    }
 
-    if (!raw) return { text: "Dados insuficientes", sub: null, color: "text-amber-600", bg: "bg-amber-100" };
+    if (!ocrComplete) {
+      return {
+        text: "Revisão Manual Necessária",
+        sub: isPayslip3Mode
+          ? `${validPayslip3.length} de 3 contracheques com OCR automático. Os demais precisam de verificação manual.`
+          : `${validIncomeDocs.length} de ${householdSize} comprovante(s) com OCR automático. Os demais precisam de verificação manual.`,
+        color: "text-amber-600",
+        bg: "bg-amber-100",
+      };
+    }
 
-    if (perCapita != null && size != null) {
-      const eligible = perCapita <= 2000;
+    const perCapita = perCapitaComputed ?? enrollment.perCapitaIncome;
+    if (perCapita != null) {
+      const eligible = perCapita <= LIMITE_RENDA_PER_CAPITA;
+      const limiteStr = LIMITE_RENDA_PER_CAPITA.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+      const eligibleSuffix = eligible ? ' (dentro do limite)' : ' (acima de R$ ' + limiteStr + ')';
+      let subMsg: string;
+      if (isPayslip3Mode && mediaAluno != null) {
+        const partialNote = validFamilyIncomeDocs.length < numOutrosMembros ? ` (${validFamilyIncomeDocs.length}/${numOutrosMembros} familiar(es) com OCR)` : '';
+        subMsg = 'Aluno R$ ' + mediaAluno.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+          + ' + família R$ ' + familyTotalP3.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + partialNote
+          + ' = R$ ' + (mediaAluno + familyTotalP3).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+          + ' ÷ ' + householdSize + ' = R$ ' + perCapita.toLocaleString('pt-BR') + ' per capita' + eligibleSuffix;
+      } else {
+        subMsg = 'Renda familiar R$ ' + totalFamilyIncomeStd.toLocaleString('pt-BR') + ' ÷ ' + householdSize + ' = R$ ' + perCapita.toLocaleString('pt-BR') + ' per capita' + eligibleSuffix;
+      }
       return {
         text: eligible ? "Elegível" : "Não Elegível",
-        sub: `R$ ${perCapita.toLocaleString('pt-BR')} per capita${eligible ? " (abaixo de R$ 2.000)" : " (acima de R$ 2.000)"}`,
+        sub: subMsg,
         color: eligible ? "text-green-600" : "text-red-600",
         bg: eligible ? "bg-green-100" : "bg-red-100",
       };
     }
 
-    const eligible = raw <= 2000;
+    const raw = enrollment.income;
+    if (!raw) return { text: "Dados insuficientes", sub: null, color: "text-amber-600", bg: "bg-amber-100" };
+    const eligible = raw <= LIMITE_RENDA_PER_CAPITA;
     return {
-      text: eligible ? "Elegível (Renda abaixo ou igual a R$ 2.000)" : "Não Elegível (Renda acima de R$ 2.000)",
+      text: eligible ? "Elegível (Renda declarada)" : "Não Elegível (Renda declarada)",
       sub: null,
       color: eligible ? "text-green-600" : "text-red-600",
       bg: eligible ? "bg-green-100" : "bg-red-100",
@@ -149,7 +256,6 @@ export default function AdminEnrollmentReview() {
                       { label: 'Data de Nascimento', value: enrollment.dateOfBirth },
                       { label: 'Renda Bruta Declarada', value: enrollment.income ? `R$ ${enrollment.income.toLocaleString('pt-BR')}` : null },
                       { label: 'Nº de pessoas na residência', value: enrollment.householdSize ?? null },
-                      { label: 'Renda Per Capita', value: enrollment.perCapitaIncome ? `R$ ${enrollment.perCapitaIncome.toLocaleString('pt-BR')}` : null },
                       { label: 'Data de Inscrição', value: enrollment.createdAt ? format(new Date(enrollment.createdAt), 'dd/MM/yyyy HH:mm') : null },
                     ].map((item, i) => (
                       <div key={i} className="border-b last:border-0 pb-3 last:pb-0">
@@ -157,6 +263,175 @@ export default function AdminEnrollmentReview() {
                         <p className="font-medium text-foreground">{item.value || '-'}</p>
                       </div>
                     ))}
+                  </CardContent>
+                </Card>
+
+                {/* Family Income Summary Card */}
+                <Card className="border-0 shadow-lg shadow-black/5 rounded-2xl">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="font-display text-lg flex items-center gap-2">
+                      <Users className="w-5 h-5 text-primary" />
+                      Renda Per Capita Familiar
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Progress bar */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{isPayslip3Mode ? 'Contracheques enviados' : 'Comprovantes enviados'}</span>
+                        <span className="font-semibold">
+                          {incomeDocsSubmitted} / {incomeDocsRequired} {isPayslip3Mode ? 'contracheques' : 'membros'}
+                        </span>
+                      </div>
+                      <Progress
+                        value={(incomeDocsSubmitted / incomeDocsRequired) * 100}
+                        className="h-2"
+                      />
+                      {!incomeComplete && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {isPayslip3Mode
+                            ? `Aguardando ${incomeDocsRequired - incomeDocsSubmitted} contracheque(s)`
+                            : `Aguardando ${incomeDocsRequired - incomeDocsSubmitted} comprovante(s)`}
+                        </p>
+                      )}
+                      {incomeComplete && !ocrComplete && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          {isPayslip3Mode
+                            ? `${validPayslip3.length}/3 contracheques + ${validFamilyIncomeDocs.length}/${numOutrosMembros} familiar(es) com OCR — demais precisam revisão manual`
+                            : `${validIncomeDocs.length} de ${householdSize} com OCR automático — demais precisam revisão manual`}
+                        </p>
+                      )}
+                      {ocrComplete && (
+                        <p className="text-xs text-green-600 flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3" />
+                          Todos os comprovantes validados via OCR
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Individual incomes */}
+                    {isPayslip3Mode ? (
+                      /* Payslip-3 mode: contracheques + comprovantes familiares + medias + fórmula */
+                      (payslip3Docs.length > 0 || familyIncomeDocs.length > 0) && (
+                        <div className="space-y-1 text-xs">
+                          {/* Contracheques do solicitante */}
+                          {payslip3Docs.map((d: any, i: number) => {
+                            const ocr = d.ocrData;
+                            const hasOcr = ocr && ocr.status !== "REVISAO_MANUAL" && ocr.rendaTotal > 0;
+                            return (
+                              <div key={d.id} className={`flex justify-between ${hasOcr ? 'text-muted-foreground' : 'text-muted-foreground/50 italic'}`}>
+                                <span>Contracheque {i + 1} – {d.name}</span>
+                                <span className="font-medium tabular-nums">
+                                  {hasOcr
+                                    ? `R$ ${(ocr.rendaTotal as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                                    : '— revisão manual'}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          {mediaAluno != null && (
+                            <div className="flex justify-between font-semibold text-primary border-t pt-1 mt-1">
+                              <span>Média do solicitante</span>
+                              <span className="tabular-nums">R$ {mediaAluno.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          )}
+                          {/* Comprovantes dos familiares */}
+                          {familyIncomeDocs.length > 0 && (
+                            <>
+                              <div className="pt-2 mt-1 border-t text-xs font-semibold text-muted-foreground/70">Comprovantes dos familiares</div>
+                              {familyIncomeDocs.map((d: any, i: number) => {
+                                const ocr = d.ocrData;
+                                const hasOcr = ocr && ocr.status !== "REVISAO_MANUAL" && ocr.rendaTotal > 0;
+                                return (
+                                  <div key={d.id} className={`flex justify-between ${hasOcr ? 'text-muted-foreground' : 'text-muted-foreground/50 italic'}`}>
+                                    <span>Familiar {i + 1} – {d.name}</span>
+                                    <span className="font-medium tabular-nums">
+                                      {hasOcr
+                                        ? `R$ ${(ocr.rendaTotal as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                                        : '— revisão manual'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                              {mediaFamilia != null && (
+                                <div className="flex justify-between font-semibold text-blue-600 border-t pt-1 mt-1">
+                                  <span>Média dos familiares</span>
+                                  <span className="tabular-nums">R$ {mediaFamilia.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {/* Fórmula final */}
+                          {mediaAluno != null && (
+                            <div className="flex justify-between font-semibold text-purple-700 border-t pt-1 mt-1">
+                              <span>
+                                (aluno + família{validFamilyIncomeDocs.length < numOutrosMembros ? `*` : ''}) ÷ {householdSize} pessoas
+                              </span>
+                              <span className="tabular-nums">R$ {perCapitaComputed?.toLocaleString('pt-BR') ?? '—'}</span>
+                            </div>
+                          )}
+                          {mediaAluno != null && validFamilyIncomeDocs.length < numOutrosMembros && numOutrosMembros > 0 && (
+                            <p className="text-xs text-amber-600 italic">* {validFamilyIncomeDocs.length}/{numOutrosMembros} familiar(es) com OCR — demais contam como R$ 0</p>
+                          )}
+                        </div>
+                      )
+                    ) : (
+                      /* Standard mode */
+                      validIncomeDocs.length > 0 && (
+                        <div className="space-y-1 text-xs">
+                          {validIncomeDocs.map((d: any, i: number) => (
+                            <div key={d.id} className="flex justify-between text-muted-foreground">
+                              <span>Membro {i + 1} – {d.name}</span>
+                              <span className="font-medium tabular-nums">
+                                R$ {(d.ocrData.rendaTotal as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          ))}
+                          {incomeDocs.filter((d: any) => !validIncomeDocs.includes(d)).map((d: any, i: number) => (
+                            <div key={d.id} className="flex justify-between text-muted-foreground/50 italic">
+                              <span>Doc {validIncomeDocs.length + i + 1} – {d.name} (revisão manual)</span>
+                              <span>—</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    )}
+
+                    {/* Aggregate — apenas no modo padrão (payslip-3 já mostra o breakdown acima) */}
+                    {!isPayslip3Mode && validIncomeDocs.length > 0 && (
+                      <div className="border-t pt-3 space-y-2 text-sm">
+                        <div className="flex justify-between font-semibold">
+                          <span className="flex items-center gap-1">
+                            <TrendingUp className="w-4 h-4" />
+                            Renda (OCR) somada
+                          </span>
+                          <span className="tabular-nums">R$ {totalFamilyIncomeStd.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        {perCapitaComputed != null ? (
+                          <div className={`flex justify-between font-bold text-base ${
+                            perCapitaComputed <= LIMITE_RENDA_PER_CAPITA ? 'text-green-700' : 'text-red-700'
+                          }`}>
+                            <span>÷ {householdSize} pessoas = per capita{!ocrComplete ? ' *' : ''}</span>
+                            <span className="tabular-nums">R$ {perCapitaComputed.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-amber-600 italic">
+                            Aguardando OCR para calcular per capita
+                          </p>
+                        )}
+                        {perCapitaComputed != null && !ocrComplete && (
+                          <p className="text-xs text-amber-600 italic">
+                            * Cálculo parcial: {validIncomeDocs.length} de {householdSize} membro(s) com comprovante — membros sem doc contam como R$ 0
+                          </p>
+                        )}
+                        <div className="flex justify-between text-xs text-muted-foreground/70">
+                          <span>Limite OCR permitido</span>
+                          <span>R$ 6.072,00</span>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -182,17 +457,93 @@ export default function AdminEnrollmentReview() {
                                 Enviado em {format(new Date(doc.uploadedAt), 'dd/MM')}
                               </p>
                               
-                              {/* Mock OCR Data Display */}
-                              <div className="mt-4 bg-secondary/50 p-3 rounded-lg border border-border">
-                                <p className="text-xs font-semibold uppercase text-muted-foreground mb-2 flex items-center">
-                                  <BrainCircuit className="w-3 h-3 mr-1" /> Extraído por OCR
-                                </p>
-                                {doc.ocrData ? (
-                                  <pre className="text-xs overflow-auto font-mono text-primary/80">
-                                    {JSON.stringify(doc.ocrData, null, 2)}
-                                  </pre>
-                                ) : (
-                                  <p className="text-xs text-muted-foreground italic">Nenhum dado extraído</p>
+                              {/* OCR Income Validation Display */}
+                              <div className="mt-4 rounded-lg border border-border overflow-hidden">
+                                <div className="bg-secondary/50 px-3 py-2 flex items-center gap-1.5">
+                                  <BrainCircuit className="w-3.5 h-3.5 text-primary" />
+                                  <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
+                                    Validação OCR
+                                  </p>
+                                </div>
+
+                                {doc.ocrData ? (() => {
+                                  const ocr = doc.ocrData as any;
+                                  const statusStyles: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
+                                    APROVADO:       { bg: "bg-green-50",  text: "text-green-700",  icon: <ShieldCheck className="w-4 h-4" /> },
+                                    REPROVADO:      { bg: "bg-red-50",    text: "text-red-700",    icon: <XCircle className="w-4 h-4" /> },
+                                    REVISAO_MANUAL: { bg: "bg-amber-50",  text: "text-amber-700",  icon: <AlertCircle className="w-4 h-4" /> },
+                                  };
+                                  const style = statusStyles[ocr.status] ?? statusStyles.REVISAO_MANUAL;
+
+                                  return (
+                                    <div className="p-3 space-y-2">
+                                      {/* Status pill */}
+                                      <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${style.bg}`}>
+                                        <span className={style.text}>{style.icon}</span>
+                                        <span className={`text-xs font-bold ${style.text}`}>
+                                          {{ APROVADO: "Aprovado", REPROVADO: "Reprovado", REVISAO_MANUAL: "Revisão Manual" }[ocr.status as string] ?? ocr.status}
+                                        </span>
+                                        {ocr.ocrConfidence != null && (
+                                          <span className="ml-auto text-xs text-muted-foreground">
+                                            {ocr.ocrConfidence}% conf.
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Monetary values */}
+                                      {ocr.rendaTotal != null && (
+                                        <div className="space-y-1 text-xs">
+                                          {/* Valor selecionado como base */}
+                                          {(ocr as any).valorSelecionado && (
+                                            <div className="bg-muted/40 rounded p-1.5 space-y-0.5">
+                                              <div className="flex items-center gap-1 text-muted-foreground">
+                                                <span>Valor base:</span>
+                                                <span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                  (ocr as any).valorSelecionado.priority === 1
+                                                    ? "bg-green-100 text-green-700"
+                                                    : (ocr as any).valorSelecionado.priority === 2
+                                                    ? "bg-blue-100 text-blue-700"
+                                                    : "bg-gray-100 text-gray-600"
+                                                }`}>
+                                                  {{ 1: "líquido", 2: "bruto", 3: "genérico" }[(ocr as any).valorSelecionado.priority as number]}
+                                                </span>
+                                              </div>
+                                              <p className="truncate text-[10px] text-muted-foreground/70 italic" title={(ocr as any).valorSelecionado.label}>
+                                                "{(ocr as any).valorSelecionado.label}"
+                                              </p>
+                                            </div>
+                                          )}
+                                          <div className="flex justify-between">
+                                            <span className="text-muted-foreground flex items-center gap-1">
+                                              <TrendingUp className="w-3 h-3" /> Renda extraída (este doc)
+                                            </span>
+                                            <span className="font-semibold tabular-nums">
+                                              R$ {(ocr.rendaTotal as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                            </span>
+                                          </div>
+                                          {ocr.limitePermitido != null && (
+                                            <div className="flex justify-between text-muted-foreground/70">
+                                              <span>Limite permitido</span>
+                                              <span className="tabular-nums">
+                                                R$ {(ocr.limitePermitido as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {/* Observation / motivo */}
+                                      {(ocr.motivo || ocr.observacao) && (
+                                        <p className="text-xs text-muted-foreground italic border-t border-border/40 pt-2">
+                                          {ocr.motivo ?? ocr.observacao}
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })() : (
+                                  <p className="text-xs text-muted-foreground italic p-3">
+                                    Nenhum dado extraído por OCR.
+                                  </p>
                                 )}
                               </div>
                             </div>

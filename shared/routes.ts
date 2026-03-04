@@ -104,6 +104,7 @@ export const api = {
         incomeCategory: z.enum(incomeCategoryEnum),
         income: z.number().default(0),
         monthlyExpenses: z.number().default(0),
+        householdSize: z.number().optional(),
         hasFormalEmploymentHistory: z.boolean().optional(),
         hasVariableIncome: z.boolean().optional(),
         isCompanyActive: z.boolean().optional(),

@@ -120,7 +120,7 @@ export default function AdminDashboard() {
                           <div className="bg-white p-2 rounded-lg shadow-sm shrink-0">📏</div>
                           <div>
                             <h4 className="font-semibold text-foreground">Regras de Elegibilidade</h4>
-                            <p className="text-sm text-muted-foreground mt-1">Limite automático: Renda &lt; R$ 2.000 indica elegibilidade. Revisão manual necessária para casos especiais.</p>
+                            <p className="text-sm text-muted-foreground mt-1">Limite automático: Renda per capita &lt; R$ 6.072 (4× salário mínimo) indica elegibilidade. Revisão manual necessária para casos especiais.</p>
                           </div>
                         </div>
                       </div>
