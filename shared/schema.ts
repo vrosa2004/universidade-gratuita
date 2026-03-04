@@ -82,7 +82,31 @@ export const documents = pgTable("documents", {
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
-export const insertEnrollmentSchema = createInsertSchema(enrollments).omit({ id: true, createdAt: true, systemDecision: true, status: true });
+
+function isValidCpf(cpf: string): boolean {
+  const digits = cpf.replace(/\D/g, '');
+  if (digits.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(digits)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += parseInt(digits[i]) * (10 - i);
+  let rem = (sum * 10) % 11;
+  if (rem === 10 || rem === 11) rem = 0;
+  if (rem !== parseInt(digits[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += parseInt(digits[i]) * (11 - i);
+  rem = (sum * 10) % 11;
+  if (rem === 10 || rem === 11) rem = 0;
+  return rem === parseInt(digits[10]);
+}
+
+export const insertEnrollmentSchema = createInsertSchema(enrollments)
+  .omit({ id: true, createdAt: true, systemDecision: true, status: true })
+  .extend({
+    cpf: z.string().optional().refine(
+      (val) => !val || isValidCpf(val),
+      { message: 'CPF inválido' }
+    ),
+  });
 export const insertDocumentSchema = createInsertSchema(documents).omit({ id: true, uploadedAt: true, ocrData: true, url: true });
 
 export type User = typeof users.$inferSelect;
