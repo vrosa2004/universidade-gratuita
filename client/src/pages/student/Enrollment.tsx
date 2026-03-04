@@ -71,6 +71,30 @@ function fromTriBoolean(val: string): boolean | null {
   return null;
 }
 
+function maskCpf(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
+function validateCpf(cpf: string): boolean {
+  const digits = cpf.replace(/\D/g, '');
+  if (digits.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(digits)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += parseInt(digits[i]) * (10 - i);
+  let rem = (sum * 10) % 11;
+  if (rem === 10 || rem === 11) rem = 0;
+  if (rem !== parseInt(digits[9])) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += parseInt(digits[i]) * (11 - i);
+  rem = (sum * 10) % 11;
+  if (rem === 10 || rem === 11) rem = 0;
+  return rem === parseInt(digits[10]);
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function StudentEnrollment() {
@@ -86,6 +110,7 @@ export default function StudentEnrollment() {
   const deleteMutation = useDeleteDocument();
 
   const [editingDoc, setEditingDoc] = useState<AttachmentDescriptor | null>(null);
+  const [cpfError, setCpfError] = useState<string>('');
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
@@ -296,8 +321,24 @@ export default function StudentEnrollment() {
               <div className="space-y-2">
                 <Label htmlFor="cpf">CPF</Label>
                 <Input id="cpf" value={formData.cpf} disabled={isLocked}
-                  onChange={(e) => setFormData({ ...formData, cpf: e.target.value })}
-                  className="h-12 rounded-xl" placeholder="000.000.000-00" />
+                  onChange={(e) => {
+                    const masked = maskCpf(e.target.value);
+                    setFormData({ ...formData, cpf: masked });
+                    if (masked.length === 14) {
+                      setCpfError(validateCpf(masked) ? '' : 'CPF inválido');
+                    } else {
+                      setCpfError('');
+                    }
+                  }}
+                  onBlur={() => {
+                    if (formData.cpf && !validateCpf(formData.cpf)) {
+                      setCpfError('CPF inválido');
+                    }
+                  }}
+                  inputMode="numeric"
+                  className={`h-12 rounded-xl ${cpfError ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                  placeholder="000.000.000-00" />
+                {cpfError && <p className="text-xs text-destructive">{cpfError}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="dob">Data de Nascimento</Label>
@@ -415,7 +456,7 @@ export default function StudentEnrollment() {
             <div className="pt-4 flex justify-end">
               <Button
                 onClick={handleSavePersonal}
-                disabled={isSaving || !formData.name || !formData.cpf || isLocked}
+                disabled={isSaving || !formData.name || !formData.cpf || !validateCpf(formData.cpf) || isLocked}
                 className="h-12 px-8 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
               >
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
