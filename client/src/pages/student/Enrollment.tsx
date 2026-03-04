@@ -41,16 +41,6 @@ interface FormData {
   hasProLabore: boolean | null;
 }
 
-interface FormErrors {
-  name?: string;
-  cpf?: string;
-  dateOfBirth?: string;
-  income?: string;
-  householdSize?: string;
-  monthlyExpenses?: string;
-  incomeCategory?: string;
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const CONDITIONAL_FIELDS: Partial<Record<IncomeCategoryKey, {
@@ -79,125 +69,6 @@ function fromTriBoolean(val: string): boolean | null {
   if (val === 'yes') return true;
   if (val === 'no') return false;
   return null;
-}
-
-// Validação de CPF
-function validateCPF(cpf: string): boolean {
-  const cleaned = cpf.replace(/\D/g, '');
-  if (cleaned.length !== 11) return false;
-  if (/^(\d)\1{10}$/.test(cleaned)) return false;
-
-  let sum = 0;
-  let remainder;
-
-  for (let i = 1; i <= 9; i++) {
-    sum += parseInt(cleaned.substring(i - 1, i)) * (11 - i);
-  }
-  remainder = (sum * 10) % 11;
-  if (remainder === 10 || remainder === 11) remainder = 0;
-  if (remainder !== parseInt(cleaned.substring(9, 10))) return false;
-
-  sum = 0;
-  for (let i = 1; i <= 10; i++) {
-    sum += parseInt(cleaned.substring(i - 1, i)) * (12 - i);
-  }
-  remainder = (sum * 10) % 11;
-  if (remainder === 10 || remainder === 11) remainder = 0;
-  if (remainder !== parseInt(cleaned.substring(10, 11))) return false;
-
-  return true;
-}
-
-// Máscara de CPF
-function formatCPF(cpf: string): string {
-  const cleaned = cpf.replace(/\D/g, '');
-  if (cleaned.length <= 3) return cleaned;
-  if (cleaned.length <= 6) return `${cleaned.slice(0, 3)}.${cleaned.slice(3)}`;
-  if (cleaned.length <= 9) return `${cleaned.slice(0, 3)}.${cleaned.slice(3, 6)}.${cleaned.slice(6)}`;
-  return `${cleaned.slice(0, 3)}.${cleaned.slice(3, 6)}.${cleaned.slice(6, 9)}-${cleaned.slice(9, 11)}`;
-}
-
-// Validação de data de nascimento
-function validateDateOfBirth(dateStr: string): { valid: boolean; message?: string } {
-  if (!dateStr) return { valid: false, message: 'Data de nascimento é obrigatória' };
-
-  const date = new Date(dateStr);
-  const today = new Date();
-  let age = today.getFullYear() - date.getFullYear();
-  const monthDiff = today.getMonth() - date.getMonth();
-  const dayDiff = today.getDate() - date.getDate();
-
-  // Ajusta a idade se o aniversário ainda não chegou neste ano
-  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
-    age--;
-  }
-
-  if (age < 16) {
-    return { valid: false, message: 'Você deve ter pelo menos 16 anos' };
-  }
-
-  if (age > 120) {
-    return { valid: false, message: 'Data de nascimento inválida' };
-  }
-
-  return { valid: true };
-}
-
-// Validação do formulário completo
-function validateForm(data: FormData): FormErrors {
-  const errors: FormErrors = {};
-
-  if (!data.name?.trim()) {
-    errors.name = 'Nome completo é obrigatório';
-  } else if (data.name.trim().length < 3) {
-    errors.name = 'Nome deve ter pelo menos 3 caracteres';
-  }
-
-  if (!data.cpf?.trim()) {
-    errors.cpf = 'CPF é obrigatório';
-  } else if (!validateCPF(data.cpf)) {
-    errors.cpf = 'CPF inválido';
-  }
-
-  const dobValidation = validateDateOfBirth(data.dateOfBirth);
-  if (!dobValidation.valid) {
-    errors.dateOfBirth = dobValidation.message;
-  }
-
-  if (!data.income) {
-    errors.income = 'Renda é obrigatória';
-  } else {
-    const incomeNum = parseInt(data.income);
-    if (incomeNum < 0) {
-      errors.income = 'Renda não pode ser negativa';
-    }
-  }
-
-  if (!data.householdSize) {
-    errors.householdSize = 'Número de pessoas é obrigatório';
-  } else {
-    const size = parseInt(data.householdSize);
-    if (size < 1) {
-      errors.householdSize = 'Deve haver pelo menos 1 pessoa';
-    } else if (size > 20) {
-      errors.householdSize = 'Número inválido';
-    }
-  }
-
-  if (!data.monthlyExpenses) {
-    errors.monthlyExpenses = 'Despesas mensais são obrigatórias';
-  } else {
-    const expensesNum = parseInt(data.monthlyExpenses);
-    if (expensesNum < 0) {
-      errors.monthlyExpenses = 'Despesas não podem ser negativas';
-    }
-  }
-
-  if (!data.incomeCategory) {
-    errors.incomeCategory = 'Selecione sua categoria de renda';
-  }
-
-  return errors;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -230,8 +101,6 @@ export default function StudentEnrollment() {
     hasProLabore: null,
   });
 
-  const [formErrors, setFormErrors] = useState<FormErrors>({});
-
   useEffect(() => {
     if (enrollment) {
       setFormData({
@@ -256,6 +125,7 @@ export default function StudentEnrollment() {
       incomeCategory: formData.incomeCategory as IncomeCategoryKey,
       income: parseInt(formData.income) || 0,
       monthlyExpenses: parseInt(formData.monthlyExpenses) || 0,
+      householdSize: parseInt(formData.householdSize) || 1,
       hasFormalEmploymentHistory: formData.hasFormalEmploymentHistory ?? undefined,
       hasVariableIncome: formData.hasVariableIncome ?? undefined,
       isCompanyActive: formData.isCompanyActive ?? undefined,
@@ -266,22 +136,10 @@ export default function StudentEnrollment() {
   const { data: requiredAttachments = [], isLoading: isLoadingAttachments } = useRequiredAttachments(attachmentCtx);
 
   const handleSavePersonal = async () => {
-    const errors = validateForm(formData);
-    setFormErrors(errors);
-
-    if (Object.keys(errors).length > 0) {
-      toast({
-        variant: "destructive",
-        title: "Verifique os erros",
-        description: "Corrija todos os campos marcados antes de continuar."
-      });
-      return;
-    }
-
     try {
       const payload: Record<string, unknown> = {
         name: formData.name,
-        cpf: formData.cpf.replace(/\D/g, ''),
+        cpf: formData.cpf,
         dateOfBirth: formData.dateOfBirth,
         income: formData.income ? parseInt(formData.income) : undefined,
         householdSize: formData.householdSize ? parseInt(formData.householdSize) : undefined,
@@ -299,7 +157,6 @@ export default function StudentEnrollment() {
         await createMutation.mutateAsync({ studentId: user!.id, ...payload } as any);
         toast({ title: "Inscrição iniciada com sucesso!" });
       }
-      setFormErrors({});
     } catch (e: any) {
       toast({ variant: "destructive", title: "Erro ao salvar dados", description: e.message });
     }
@@ -346,17 +203,6 @@ export default function StudentEnrollment() {
 
   const handleSubmitFinal = async () => {
     if (!enrollment) return;
-
-    const errors = validateForm(formData);
-    if (Object.keys(errors).length > 0) {
-      toast({
-        variant: "destructive",
-        title: "Formulário inválido",
-        description: "Corrija todos os campos antes de enviar."
-      });
-      return;
-    }
-
     try {
       await submitMutation.mutateAsync(enrollment.id);
       toast({ title: "Inscrição enviada!", description: "Sua inscrição está em análise." });
@@ -365,36 +211,6 @@ export default function StudentEnrollment() {
       toast({ variant: "destructive", title: "Não foi possível enviar", description: e.message });
     }
   };
-
-  const allDocs: any[] = enrollment?.documents ?? [];
-  const uploadedTypes: string[] = allDocs.map((d) => d.type);
-  const isFinalized = enrollment?.status === 'approved' || enrollment?.status === 'rejected';
-  const isLocked = !!(enrollment && enrollment.status !== 'pending');
-
-  const missingRequired: AttachmentDescriptor[] = useMemo(() => {
-    const requiredList = requiredAttachments.filter((a) => a.required);
-    const satisfiedGroups = new Set<string>();
-    const missing: AttachmentDescriptor[] = [];
-    for (const att of requiredList) {
-      const uploaded = uploadedTypes.includes(att.key);
-      if (att.group) {
-        if (uploaded) { satisfiedGroups.add(att.group); continue; }
-        if (satisfiedGroups.has(att.group)) continue;
-        const groupOk = requiredList.filter(a => a.group === att.group).some(a => uploadedTypes.includes(a.key));
-        if (groupOk) { satisfiedGroups.add(att.group); continue; }
-        if (!missing.some(m => m.group === att.group)) missing.push(att);
-      } else if (!uploaded) {
-        missing.push(att);
-      }
-    }
-    return missing;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requiredAttachments, uploadedTypes]);
-
-  const canSubmit =
-    !!enrollment?.name && !!enrollment?.cpf &&
-    !!enrollment?.incomeCategory &&
-    missingRequired.length === 0 && !isFinalized && Object.keys(formErrors).length === 0;
 
   if (isFetching) {
     return (
@@ -405,6 +221,49 @@ export default function StudentEnrollment() {
   }
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
+  const allDocs: any[] = enrollment?.documents ?? [];
+  const uploadedTypes: string[] = allDocs.map((d) => d.type);
+  const isFinalized = enrollment?.status === 'approved' || enrollment?.status === 'rejected';
+  const isLocked = !!(enrollment && enrollment.status !== 'pending');
+
+  const isPayslip3Mode = formData.incomeCategory === 'salaried' && formData.hasVariableIncome === false;
+  const numOutrosMembros = Math.max(0, (parseInt(formData.householdSize) || 1) - 1);
+
+  const missingRequired: AttachmentDescriptor[] = useMemo(() => {
+    const requiredList = requiredAttachments.filter((a) => a.required);
+    const satisfiedGroups = new Set<string>();
+    const missing: AttachmentDescriptor[] = [];
+    for (const att of requiredList) {
+      // income_proof in payslip-3 mode is always optional — never blocks submit
+      if (att.key === 'income_proof' && isPayslip3Mode) continue;
+      const typeDocs = allDocs.filter((d) => d.type === att.key);
+      let uploaded: boolean;
+      if (att.key === 'payslip_3') {
+        uploaded = typeDocs.length >= 3;
+      } else {
+        uploaded = typeDocs.length > 0;
+      }
+      if (att.group) {
+        if (uploaded) { satisfiedGroups.add(att.group); continue; }
+        if (satisfiedGroups.has(att.group)) continue;
+        const groupOk = requiredList.filter(a => a.group === att.group).some(a => {
+          const docs = allDocs.filter(d => d.type === a.key);
+          return a.key === 'payslip_3' ? docs.length >= 3 : docs.length > 0;
+        });
+        if (groupOk) { satisfiedGroups.add(att.group); continue; }
+        if (!missing.some(m => m.group === att.group)) missing.push(att);
+      } else if (!uploaded) {
+        missing.push(att);
+      }
+    }
+    return missing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requiredAttachments, uploadedTypes, isPayslip3Mode, numOutrosMembros]);
+
+  const canSubmit =
+    !!enrollment?.name && !!enrollment?.cpf &&
+    !!enrollment?.incomeCategory &&
+    missingRequired.length === 0 && !isFinalized;
 
   return (
     <div className="min-h-screen bg-secondary/30 pb-20">
@@ -429,85 +288,43 @@ export default function StudentEnrollment() {
           <CardContent className="space-y-6 pt-6 p-6 md:p-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="name" className={formErrors.name ? 'text-destructive' : ''}>Nome Completo</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  disabled={isLocked}
-                  onChange={(e) => {
-                    setFormData({ ...formData, name: e.target.value });
-                    if (formErrors.name) setFormErrors({ ...formErrors, name: undefined });
-                  }}
-                  className={`h-12 rounded-xl ${formErrors.name ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                  placeholder="João Silva"
-                />
-                {formErrors.name && <p className="text-xs text-destructive">{formErrors.name}</p>}
+                <Label htmlFor="name">Nome Completo</Label>
+                <Input id="name" value={formData.name} disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="h-12 rounded-xl" placeholder="João Silva" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cpf" className={formErrors.cpf ? 'text-destructive' : ''}>CPF</Label>
-                <Input
-                  id="cpf"
-                  value={formData.cpf}
-                  disabled={isLocked}
-                  onChange={(e) => {
-                    const formatted = formatCPF(e.target.value);
-                    setFormData({ ...formData, cpf: formatted });
-                    if (formErrors.cpf) setFormErrors({ ...formErrors, cpf: undefined });
-                  }}
-                  className={`h-12 rounded-xl ${formErrors.cpf ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                  placeholder="000.000.000-00"
-                  maxLength={14}
-                />
-                {formErrors.cpf && <p className="text-xs text-destructive">{formErrors.cpf}</p>}
+                <Label htmlFor="cpf">CPF</Label>
+                <Input id="cpf" value={formData.cpf} disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, cpf: e.target.value })}
+                  className="h-12 rounded-xl" placeholder="000.000.000-00" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="dob" className={formErrors.dateOfBirth ? 'text-destructive' : ''}>Data de Nascimento</Label>
-                <Input
-                  id="dob"
-                  type="date"
-                  value={formData.dateOfBirth}
-                  disabled={isLocked}
-                  onChange={(e) => {
-                    setFormData({ ...formData, dateOfBirth: e.target.value });
-                    if (formErrors.dateOfBirth) setFormErrors({ ...formErrors, dateOfBirth: undefined });
-                  }}
-                  className={`h-12 rounded-xl ${formErrors.dateOfBirth ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                />
-                {formErrors.dateOfBirth && <p className="text-xs text-destructive">{formErrors.dateOfBirth}</p>}
+                <Label htmlFor="dob">Data de Nascimento</Label>
+                <Input id="dob" type="date" value={formData.dateOfBirth} disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                  className="h-12 rounded-xl" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="income" className={formErrors.income ? 'text-destructive' : ''}>Renda Familiar Bruta Mensal (R$)</Label>
-                <Input
-                  id="income"
-                  type="number"
-                  value={formData.income}
-                  disabled={isLocked}
-                  onChange={(e) => {
-                    setFormData({ ...formData, income: e.target.value });
-                    if (formErrors.income) setFormErrors({ ...formErrors, income: undefined });
-                  }}
-                  className={`h-12 rounded-xl ${formErrors.income ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                  placeholder="Ex: 1500"
-                />
-                {formErrors.income && <p className="text-xs text-destructive">{formErrors.income}</p>}
+                <Label htmlFor="income">Renda Familiar Bruta Mensal (R$)</Label>
+                <Input id="income" type="number" value={formData.income} disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, income: e.target.value })}
+                  className="h-12 rounded-xl" placeholder="Ex: 1500" />
+                {formData.incomeCategory !== 'salaried' && formData.income && formData.householdSize && parseInt(formData.householdSize) > 1 && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Renda total familiar estimada:{' '}
+                    <span className="font-semibold text-foreground">
+                      R$ {(parseInt(formData.income) * parseInt(formData.householdSize)).toLocaleString('pt-BR')}
+                    </span>
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="householdSize" className={formErrors.householdSize ? 'text-destructive' : ''}>Nº de pessoas na residência</Label>
-                <Input
-                  id="householdSize"
-                  type="number"
-                  min="1"
-                  value={formData.householdSize}
-                  disabled={isLocked}
-                  onChange={(e) => {
-                    setFormData({ ...formData, householdSize: e.target.value });
-                    if (formErrors.householdSize) setFormErrors({ ...formErrors, householdSize: undefined });
-                  }}
-                  className={`h-12 rounded-xl ${formErrors.householdSize ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                  placeholder="Ex: 4"
-                />
-                {formErrors.householdSize && <p className="text-xs text-destructive">{formErrors.householdSize}</p>}
-                {formData.income && formData.householdSize && parseInt(formData.householdSize) > 0 && !formErrors.householdSize && !formErrors.income && (
+                <Label htmlFor="householdSize">Nº de pessoas na residência</Label>
+                <Input id="householdSize" type="number" min="1" value={formData.householdSize} disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, householdSize: e.target.value })}
+                  className="h-12 rounded-xl" placeholder="Ex: 4" />
+                {formData.incomeCategory !== 'salaried' && formData.income && formData.householdSize && parseInt(formData.householdSize) > 0 && (
                   <p className="text-xs text-muted-foreground pt-1">
                     Renda per capita:{' '}
                     <span className="font-semibold text-foreground">
@@ -518,30 +335,20 @@ export default function StudentEnrollment() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="expenses" className={formErrors.monthlyExpenses ? 'text-destructive' : ''}>
+                <Label htmlFor="expenses">
                   Despesas Mensais Totais (R$)
                   <span className="ml-1 text-xs text-muted-foreground">(incluindo mensalidade)</span>
                 </Label>
-                <Input
-                  id="expenses"
-                  type="number"
-                  value={formData.monthlyExpenses}
-                  disabled={isLocked}
-                  onChange={(e) => {
-                    setFormData({ ...formData, monthlyExpenses: e.target.value });
-                    if (formErrors.monthlyExpenses) setFormErrors({ ...formErrors, monthlyExpenses: undefined });
-                  }}
-                  className={`h-12 rounded-xl ${formErrors.monthlyExpenses ? 'border-destructive focus-visible:ring-destructive' : ''}`}
-                  placeholder="Ex: 1800"
-                />
-                {formErrors.monthlyExpenses && <p className="text-xs text-destructive">{formErrors.monthlyExpenses}</p>}
+                <Input id="expenses" type="number" value={formData.monthlyExpenses} disabled={isLocked}
+                  onChange={(e) => setFormData({ ...formData, monthlyExpenses: e.target.value })}
+                  className="h-12 rounded-xl" placeholder="Ex: 1800" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="incomeCategory" className={formErrors.incomeCategory ? 'text-destructive' : ''}>Categoria de Renda</Label>
+                <Label htmlFor="incomeCategory">Categoria de Renda</Label>
                 <Select
                   value={formData.incomeCategory}
                   disabled={isLocked}
-                  onValueChange={(val) => {
+                  onValueChange={(val) =>
                     setFormData({
                       ...formData,
                       incomeCategory: val as IncomeCategoryKey,
@@ -549,11 +356,10 @@ export default function StudentEnrollment() {
                       hasVariableIncome: null,
                       isCompanyActive: null,
                       hasProLabore: null,
-                    });
-                    if (formErrors.incomeCategory) setFormErrors({ ...formErrors, incomeCategory: undefined });
-                  }}
+                    })
+                  }
                 >
-                  <SelectTrigger className={`h-12 rounded-xl ${formErrors.incomeCategory ? 'border-destructive' : ''}`}>
+                  <SelectTrigger className="h-12 rounded-xl">
                     <SelectValue placeholder="Selecione sua situação trabalhista..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -562,7 +368,6 @@ export default function StudentEnrollment() {
                     ))}
                   </SelectContent>
                 </Select>
-                {formErrors.incomeCategory && <p className="text-xs text-destructive">{formErrors.incomeCategory}</p>}
               </div>
             </div>
 
@@ -580,10 +385,11 @@ export default function StudentEnrollment() {
                           type="button"
                           disabled={isLocked}
                           onClick={() => setFormData({ ...formData, [field]: fromTriBoolean(opt) })}
-                          className={`h-10 px-5 rounded-xl border text-sm font-medium transition-all ${triBoolean(formData[field]) === opt
-                            ? 'bg-primary text-primary-foreground border-primary shadow-md'
-                            : 'bg-background border-border hover:border-primary/50'
-                            }`}
+                          className={`h-10 px-5 rounded-xl border text-sm font-medium transition-all ${
+                            triBoolean(formData[field]) === opt
+                              ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                              : 'bg-background border-border hover:border-primary/50'
+                          }`}
                         >
                           {opt === 'yes' ? 'Sim' : 'Não'}
                         </button>
@@ -597,19 +403,19 @@ export default function StudentEnrollment() {
             {/* Renda < Despesas warning */}
             {formData.income && formData.monthlyExpenses &&
               parseInt(formData.income) < parseInt(formData.monthlyExpenses) && (
-                <Alert className="border-amber-200 bg-amber-50 text-amber-900">
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <AlertTitle className="text-amber-800">Renda abaixo das despesas</AlertTitle>
-                  <AlertDescription>
-                    O documento <strong>Justificativa de Renda e Gastos</strong> será exigido automaticamente.
-                  </AlertDescription>
-                </Alert>
-              )}
+              <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <AlertTitle className="text-amber-800">Renda abaixo das despesas</AlertTitle>
+                <AlertDescription>
+                  O documento <strong>Justificativa de Renda e Gastos</strong> será exigido automaticamente.
+                </AlertDescription>
+              </Alert>
+            )}
 
             <div className="pt-4 flex justify-end">
               <Button
                 onClick={handleSavePersonal}
-                disabled={isSaving || !formData.name || !formData.cpf || isLocked || Object.keys(formErrors).length > 0}
+                disabled={isSaving || !formData.name || !formData.cpf || isLocked}
                 className="h-12 px-8 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
               >
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -667,23 +473,32 @@ export default function StudentEnrollment() {
                   <div className="grid grid-cols-1 gap-3">
                     {requiredAttachments.map((att) => {
                       const typeDocs = allDocs.filter((d) => d.type === att.key);
-                      const isUploaded = typeDocs.length > 0;
+                      // payslip_3 requires exactly 3 files; treat as complete only when 3 are uploaded
+                      const isPayslip3 = att.key === 'payslip_3';
+                      const isIncomeProofFamilia = att.key === 'income_proof' && isPayslip3Mode && numOutrosMembros > 0;
+                      const isUploaded = isPayslip3
+                        ? typeDocs.length >= 3
+                        : isIncomeProofFamilia
+                        ? typeDocs.length >= numOutrosMembros
+                        : typeDocs.length > 0;
                       return (
                         <div
                           key={att.key}
-                          className={`rounded-xl border transition-all ${isUploaded
-                            ? 'bg-primary/5 border-primary/20 shadow-sm'
-                            : att.required
+                          className={`rounded-xl border transition-all ${
+                            isUploaded
+                              ? 'bg-primary/5 border-primary/20 shadow-sm'
+                              : att.required
                               ? 'bg-destructive/5 border-destructive/20 border-dashed'
                               : 'bg-amber-50/50 border-amber-200 border-dashed'
-                            }`}
+                          }`}
                         >
                           {/* Row header */}
                           <div className="flex items-center gap-3 p-4">
-                            <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center ${isUploaded ? 'bg-primary text-primary-foreground'
+                            <div className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center ${
+                              isUploaded ? 'bg-primary text-primary-foreground'
                               : att.required ? 'bg-destructive/10 text-destructive'
-                                : 'bg-amber-100 text-amber-700'
-                              }`}>
+                              : 'bg-amber-100 text-amber-700'
+                            }`}>
                               {isUploaded ? <CheckCircle2 className="w-5 h-5" /> : att.required ? <AlertCircle className="w-5 h-5" /> : <Info className="w-5 h-5" />}
                             </div>
                             <div className="min-w-0 flex-1">
@@ -693,9 +508,44 @@ export default function StudentEnrollment() {
                                   ? <Badge variant="destructive" className="text-[10px] h-4 px-1.5">Obrigatório</Badge>
                                   : <Badge variant="outline" className="text-[10px] h-4 px-1.5 border-amber-400 text-amber-700">Condicional</Badge>}
                                 {att.group && <Badge variant="secondary" className="text-[10px] h-4 px-1.5">Alternativo</Badge>}
+                                {isPayslip3 && (
+                                  <Badge
+                                    variant={isUploaded ? 'default' : 'outline'}
+                                    className={`text-[10px] h-4 px-1.5 ${isUploaded ? 'bg-green-600' : typeDocs.length > 0 ? 'border-amber-400 text-amber-700' : ''}`}
+                                  >
+                                    {typeDocs.length}/3 enviados
+                                  </Badge>
+                                )}
+                                {isIncomeProofFamilia && (
+                                  <Badge
+                                    variant={isUploaded ? 'default' : 'outline'}
+                                    className={`text-[10px] h-4 px-1.5 ${isUploaded ? 'bg-green-600' : typeDocs.length > 0 ? 'border-amber-400 text-amber-700' : ''}`}
+                                  >
+                                    {typeDocs.length}/{numOutrosMembros} familiar(es)
+                                  </Badge>
+                                )}
                               </div>
                               {att.condition && <p className="text-xs text-muted-foreground mt-0.5 italic">{att.condition}</p>}
-                              {!isUploaded && <p className="text-xs text-muted-foreground mt-0.5">Nenhum arquivo enviado</p>}
+                              {isPayslip3 && !isUploaded && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {typeDocs.length === 0
+                                    ? 'Envie os 3 contracheques dos últimos 3 meses. A média salarial será calculada automaticamente.'
+                                    : `${typeDocs.length}/3 enviados. Ainda faltam ${3 - typeDocs.length} contracheque(s).`}
+                                </p>
+                              )}
+                              {isPayslip3 && (
+                                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
+                                  <strong>Atenção:</strong> não inclua seu próprio salário no campo de renda familiar. Seu salário será calculado automaticamente com base na média dos 3 contracheques enviados.
+                                </p>
+                              )}
+                              {isIncomeProofFamilia && !isUploaded && (
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {typeDocs.length === 0
+                                    ? `Envie ${numOutrosMembros} comprovante(s) de renda — um para cada familiar que mora com você (excluindo você).`
+                                    : `${typeDocs.length}/${numOutrosMembros} enviado(s). Ainda faltam ${numOutrosMembros - typeDocs.length} comprovante(s).`}
+                                </p>
+                              )}
+                              {!isPayslip3 && !isIncomeProofFamilia && !isUploaded && <p className="text-xs text-muted-foreground mt-0.5">Nenhum arquivo enviado</p>}
                             </div>
                             {!isFinalized ? (
                               <Button
@@ -755,16 +605,17 @@ export default function StudentEnrollment() {
 
               {/* Submit panel */}
               <div className="mt-4 pt-6 border-t">
-                <div className={`flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-2xl shadow-lg ${canSubmit ? 'bg-gradient-to-br from-primary to-accent text-primary-foreground shadow-primary/20' : 'bg-muted'
-                  }`}>
+                <div className={`flex flex-col md:flex-row items-center justify-between gap-6 p-6 rounded-2xl shadow-lg ${
+                  canSubmit ? 'bg-gradient-to-br from-primary to-accent text-primary-foreground shadow-primary/20' : 'bg-muted'
+                }`}>
                   <div className="text-center md:text-left">
                     <h3 className={`font-display text-xl font-bold mb-1 ${canSubmit ? '' : 'text-foreground'}`}>Finalizar Inscrição</h3>
                     <p className={`text-sm max-w-sm ${canSubmit ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
                       {isFinalized
                         ? 'Inscrição já finalizada. Aguarde o resultado da análise.'
                         : canSubmit
-                          ? 'Todos os documentos obrigatórios foram enviados. Clique para finalizar.'
-                          : 'Envie todos os documentos obrigatórios para liberar o botão de envio.'}
+                        ? 'Todos os documentos obrigatórios foram enviados. Clique para finalizar.'
+                        : 'Envie todos os documentos obrigatórios para liberar o botão de envio.'}
                     </p>
                   </div>
                   <Button
