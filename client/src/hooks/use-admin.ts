@@ -32,9 +32,14 @@ export function useAdminEnrollments() {
     queryKey: [api.admin.list.path],
     queryFn: async () => {
       const res = await fetch(api.admin.list.path);
-      if (!res.ok) throw new Error("Failed to fetch enrollments");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? `Erro ${res.status} ao carregar inscrições`);
+      }
       return res.json();
     },
+    retry: 2,
+    retryDelay: 1500,
   });
 }
 

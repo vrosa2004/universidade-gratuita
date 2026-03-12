@@ -30,8 +30,7 @@ export type IncomeCategory = keyof typeof INCOME_CATEGORIES;
 
 export const DOC_TYPES = {
   // Base docs (collected independently of income category)
-  rg:                         'Carteira de Identidade (RG)',
-  cpf:                        'Documento CPF',
+  rg_frente:                  'Carteira de Identidade – Frente e Verso (RG / CNH)',
   residence:                  'Comprovante de Residência',
   transcript:                 'Histórico Escolar',
   // General income docs
@@ -124,8 +123,7 @@ export function getRequiredAttachments(ctx: AttachmentContext): AttachmentDescri
   // ------------------------------------------------------------------
   // 0. Documentos base – obrigatórios para todos os candidatos
   // ------------------------------------------------------------------
-  add('rg',         true);
-  add('cpf',        true);
+  add('rg_frente',  true);
   add('residence',  true);
   add('transcript', true);
 

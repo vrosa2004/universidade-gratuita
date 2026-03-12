@@ -1,7 +1,22 @@
 import "dotenv/config";
-import { type User, type InsertUser, type Enrollment, type InsertEnrollment, type Document, type InsertDocument, users, enrollments, documents } from "@shared/schema";
-import { db } from "./db";
+import {
+  type User,
+  type InsertUser,
+  type Enrollment,
+  type InsertEnrollment,
+  type Document,
+  type InsertDocument,
+  users,
+  enrollments,
+  documents,
+} from "@shared/schema";
+import { db, pool } from "./db";
 import { eq } from "drizzle-orm";
+
+export interface EnrollmentWithDetails extends Enrollment {
+  documents: Document[];
+  student: User | null;
+}
 
 export interface IStorage {
   // Users
@@ -21,6 +36,9 @@ export interface IStorage {
   getDocuments(enrollmentId: number): Promise<Document[]>;
   createDocument(doc: InsertDocument & { enrollmentId: number; url: string; ocrData?: unknown }): Promise<Document>;
   deleteDocument(id: number): Promise<void>;
+
+  /** Fetch all enrollments together with their documents and students in 2 queries. */
+  getEnrollmentsWithDetails(): Promise<EnrollmentWithDetails[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -118,6 +136,15 @@ export class MemStorage implements IStorage {
   async deleteDocument(id: number): Promise<void> {
     this.documents.delete(id);
   }
+
+  async getEnrollmentsWithDetails(): Promise<EnrollmentWithDetails[]> {
+    const allEnrollments = Array.from(this.enrollments.values());
+    return allEnrollments.map((e) => ({
+      ...e,
+      documents: Array.from(this.documents.values()).filter((d) => d.enrollmentId === e.id),
+      student: this.users.get(e.studentId) ?? null,
+    }));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +213,65 @@ export class DrizzleStorage implements IStorage {
 
   async deleteDocument(id: number): Promise<void> {
     await db.delete(documents).where(eq(documents.id, id));
+  }
+
+  /** Fetch all enrollments with their documents and students using a single JOIN query. */
+  async getEnrollmentsWithDetails(): Promise<EnrollmentWithDetails[]> {
+    // Single pool.query() with LEFT JOINs — works under any PgBouncer pool mode because
+    // the entire operation is one auto-committed transaction that never needs to hold a
+    // connection across multiple round-trips.
+
+    const sql = `
+      SELECT
+        e.id,
+        e.student_id       AS "studentId",
+        e.status,
+        e.name,
+        e.cpf,
+        e.date_of_birth    AS "dateOfBirth",
+        e.income,
+        e.monthly_expenses AS "monthlyExpenses",
+        e.income_category  AS "incomeCategory",
+        e.has_formal_employment_history AS "hasFormalEmploymentHistory",
+        e.has_variable_income           AS "hasVariableIncome",
+        e.is_company_active             AS "isCompanyActive",
+        e.has_pro_labore                AS "hasProLabore",
+        e.household_size   AS "householdSize",
+        e.per_capita_income AS "perCapitaIncome",
+        e.system_decision  AS "systemDecision",
+        e.created_at       AS "createdAt",
+        row_to_json(u.*) AS student_json,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id',           d.id,
+              'enrollmentId', d.enrollment_id,
+              'type',         d.type,
+              'name',         d.name,
+              'url',          d.url,
+              'ocrData',      d.ocr_data,
+              'uploadedAt',   d.uploaded_at
+            ) ORDER BY d.id
+          ) FILTER (WHERE d.id IS NOT NULL),
+          '[]'::json
+        ) AS documents_json
+      FROM enrollments e
+      LEFT JOIN users u ON u.id = e.student_id
+      LEFT JOIN documents d ON d.enrollment_id = e.id
+      GROUP BY e.id, u.id
+      ORDER BY e.id DESC
+    `;
+
+    const result = await pool.query(sql);
+
+    return result.rows.map((row: any) => {
+      const { student_json, documents_json, ...enrollment } = row;
+      return {
+        ...enrollment,
+        student: student_json ?? null,
+        documents: documents_json ?? [],
+      };
+    });
   }
 }
 

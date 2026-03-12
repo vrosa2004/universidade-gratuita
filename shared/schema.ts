@@ -17,7 +17,7 @@ const incomeCategoryEnum = Object.keys(INCOME_CATEGORIES) as [IncomeCategory, ..
 export const enrollments = pgTable("enrollments", {
   id: serial("id").primaryKey(),
   studentId: integer("student_id").notNull(),
-  status: text("status", { enum: ['pending', 'in_analysis', 'approved', 'rejected'] }).notNull().default('pending'),
+  status: text("status", { enum: ['pending', 'files_pending', 'in_analysis', 'approved', 'rejected'] }).notNull().default('pending'),
   name: text("name"),
   cpf: text("cpf"),
   dateOfBirth: text("date_of_birth"),
@@ -43,8 +43,8 @@ export const enrollments = pgTable("enrollments", {
 });
 
 export const DOCUMENT_TYPE_VALUES = [
-  // Base documents
-  'rg', 'cpf', 'residence', 'transcript',
+  // Base documents — identity via frente + verso (CPF is embedded in the RG/CNH)
+  'rg_frente', 'rg_verso', 'residence', 'transcript',
   // General income
   'income_proof', 'income_justification',
   // Shared

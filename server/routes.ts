@@ -2,7 +2,7 @@ import "dotenv/config";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { pool } from "./db";
+import { pool, warmPool } from "./db";
 import { api } from "@shared/routes";
 import { getRequiredAttachments, validateAttachments } from "@shared/attachments";
 import { LIMITE_MULTIPLICADOR, LIMITE_RENDA_PER_CAPITA } from "@shared/schema";
@@ -13,6 +13,7 @@ import connectPgSimple from "connect-pg-simple";
 import bcrypt from "bcrypt";
 import { extractTextFromDataUrl } from "./services/ocr.service.js";
 import { extractValueCandidates, extractMoneyValues, calculateIncomeResult } from "./services/income.service.js";
+import { analyzeDocument } from "./services/document-analysis.service.js";
 
 /** Document types that must have income validated via OCR */
 const INCOME_DOC_TYPES = new Set([
@@ -21,6 +22,9 @@ const INCOME_DOC_TYPES = new Set([
   "rural_declaration", "fishing_declaration", "inss_extract",
   "decore", "pro_labore_3",
 ]);
+
+/** Identity documents that go through the full document-analysis pipeline */
+const IDENTITY_DOC_TYPES = new Set(["rg_frente", "rg_verso"]);
 
 /**
  * After every income-document upload, recalculate the aggregate family income
@@ -132,17 +136,17 @@ const PgSession = connectPgSimple(session);
 declare module 'express-session' {
   interface SessionData {
     userId: number;
+    userRole: string;
   }
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
-  // Setup session (uses PostgreSQL when DATABASE_URL is available)
-  const sessionStore = process.env.DATABASE_URL
-    ? new PgSession({ pool, createTableIfMissing: true })
-    : undefined;
-
+  // Session store — deliberately uses MemoryStore (the express-session default).
+  // Using connect-pg-simple would compete with business-logic queries for the same
+  // PgBouncer connection pool and cause "timeout trying to connect" errors under load.
+  // Sessions are in-process memory; users must re-login after a server restart,
+  // which is acceptable for this application.
   app.use(session({
-    store: sessionStore,
     secret: process.env.SESSION_SECRET ?? 'dev-secret-change-in-production',
     resave: false,
     saveUninitialized: false,
@@ -161,10 +165,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!req.session?.userId) {
       return res.status(401).json({ message: "Not authenticated" });
     }
+    // Use the role cached in the session to avoid an extra DB round-trip on every admin request.
+    if (req.session.userRole === 'admin') return next();
     const user = await storage.getUser(req.session.userId);
     if (user?.role !== 'admin') {
       return res.status(403).json({ message: "Not authorized" });
     }
+    req.session.userRole = user.role;
     next();
   };
 
@@ -178,6 +185,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(401).json({ message: "Invalid credentials" });
       }
       req.session.userId = user.id;
+      req.session.userRole = user.role;
       res.json(user);
     } catch (e) {
       res.status(400).json({ message: "Bad request" });
@@ -250,6 +258,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         res.status(500).json({ message: err?.message ?? "Erro no OCR", stack: err?.stack });
       }
     });
+
+    // ── DEV: Document Analysis debug endpoint ──────────────────────────────
+    // POST /api/debug/document-analysis
+    // Accepts { base64: "data:image/...;base64,...", declaredName?: string }
+    // Returns the full DocumentAnalysisResult JSON without writing to the DB.
+    app.post("/api/debug/document-analysis", requireAuth, async (req, res) => {
+      try {
+        const { base64, declaredName } = req.body as { base64?: string; declaredName?: string };
+        if (!base64) return res.status(400).json({ message: "Envie { base64: 'data:...' }" });
+        const result = await analyzeDocument(base64, declaredName);
+        res.json(result);
+      } catch (err: any) {
+        res.status(500).json({ message: err?.message ?? "Erro na análise", stack: err?.stack });
+      }
+    });
   }
 
   // Student Routes
@@ -297,8 +320,140 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const input = api.documents.upload.input.parse(req.body);
 
       let ocrData: Record<string, unknown> | null = null;
+      let analysePendente: { tipo: 'nao_identificado' | 'nao_correspondente'; campos_nao_identificados: string[]; observacoes: string[] } | null = null;
 
-      if (INCOME_DOC_TYPES.has(input.type)) {
+      if (IDENTITY_DOC_TYPES.has(input.type)) {
+        // ── Document Analysis Pipeline (RG frente / verso) ──────────────
+        try {
+          const enrollment = await storage.getEnrollment(id);
+          const declaredName = enrollment?.name ?? undefined;
+          const declaredCpf = enrollment?.cpf ?? undefined;
+          const analysis = await analyzeDocument(input.base64Content, declaredName, declaredCpf);
+          ocrData = analysis as unknown as Record<string, unknown>;
+          console.log(
+            `[DocAnalysis] ${input.type} — score ${analysis.score_confianca} | ` +
+              `fraude=${analysis.fraude_detectada} | cpf_valido=${analysis.validacoes.cpf_valido} | ` +
+              `cpf_correspondente=${analysis.validacoes.cpf_correspondente}`
+          );
+
+          const CAMPO = "campo_nao_identificado";
+          const camposNI = Object.entries(analysis.campos_extraidos as Record<string, string>)
+            .filter(([, v]) => v === CAMPO)
+            .map(([k]) => k);
+
+          // Only flag NOME and CPF as blocking missing fields.
+          const BLOCKING_FIELDS = new Set(["nome", "cpf"]);
+          const blockingMissing = camposNI.filter((k) => BLOCKING_FIELDS.has(k));
+
+          // Special case: if CPF couldn't be extracted BUT the user already declared
+          // their CPF in the enrollment form AND the name was successfully identified,
+          // we should NOT block the user with "files_pending" (asking for resubmission).
+          // Old RGs with laminates often cause OCR to misread the CPF digits.
+          // Instead, route to manual admin review so a human can verify it.
+          const cpfUnreadableButDeclared =
+            blockingMissing.includes("cpf") &&
+            !!declaredCpf &&
+            !camposNI.includes("nome"); // name was successfully identified
+
+          // Before setting files_pending, check whether the blocking fields missing
+          // from THIS upload are collectively covered by other documents of the same
+          // type already uploaded (e.g. RG front has nome, RG back has CPF — both
+          // together satisfy all required fields even though neither alone does).
+          let alreadyResolved = false;
+          if (blockingMissing.length > 0) {
+            const existingDocs = await storage.getDocuments(id);
+            const siblings = existingDocs.filter((d) => d.type === input.type);
+            // For each field that is missing from this upload, check whether at
+            // least one sibling document has already identified it.
+            alreadyResolved = blockingMissing.every((field) =>
+              siblings.some((d) => {
+                const ocr = d.ocrData as any;
+                const val = ocr?.campos_extraidos?.[field];
+                return val && val !== CAMPO;
+              })
+            );
+          }
+
+          if (analysis.fraude_detectada || analysis.score_confianca < 0.40) {
+            await storage.updateEnrollmentStatus(
+              id,
+              "pending",
+              `Revisão manual necessária: análise de documento com baixo score (${analysis.score_confianca}) ou sinal de fraude.`
+            );
+          } else if (
+            analysis.validacoes.cpf_correspondente === false &&
+            analysis.campos_extraidos.cpf !== "campo_nao_identificado"
+          ) {
+            // CPF foi extraído do documento mas NÃO bate com o CPF declarado pelo aluno.
+            await storage.updateEnrollmentStatus(
+              id,
+              "files_pending",
+              `O CPF encontrado no documento (${analysis.campos_extraidos.cpf}) não corresponde ao CPF informado no cadastro. Verifique os dados e reenvie o documento correto.`
+            );
+            analysePendente = {
+              tipo: 'nao_correspondente',
+              campos_nao_identificados: ["cpf"],
+              observacoes: [
+                `CPF no documento não corresponde ao CPF declarado no cadastro.`,
+                ...analysis.observacoes,
+              ],
+            };
+          } else if (
+            analysis.validacoes.nome_correspondente === false &&
+            analysis.campos_extraidos.nome !== "campo_nao_identificado"
+          ) {
+            // Nome foi extraído do documento mas NÃO bate com o nome declarado pelo aluno.
+            await storage.updateEnrollmentStatus(
+              id,
+              "files_pending",
+              `O nome encontrado no documento não corresponde ao nome informado no cadastro. Verifique os dados e reenvie o documento correto.`
+            );
+            analysePendente = {
+              tipo: 'nao_correspondente',
+              campos_nao_identificados: ["nome"],
+              observacoes: [
+                `Nome no documento não corresponde ao nome declarado no cadastro.`,
+                ...analysis.observacoes,
+              ],
+            };
+          } else if (cpfUnreadableButDeclared) {
+            // CPF declared in enrollment but OCR couldn't read it from document.
+            // Route to manual review instead of blocking the user.
+            await storage.updateEnrollmentStatus(
+              id,
+              "pending",
+              "CPF não pôde ser verificado automaticamente no documento (qualidade de imagem insuficiente na região do CPF). Em revisão manual pelo administrador."
+            );
+          } else if (blockingMissing.length > 0 && !alreadyResolved) {
+            await storage.updateEnrollmentStatus(
+              id,
+              "files_pending",
+              `Campo(s) não identificado(s) no documento: ${blockingMissing.join(", ")}. Reenvie o arquivo com melhor qualidade ou iluminação.`
+            );
+            analysePendente = { tipo: 'nao_identificado', campos_nao_identificados: blockingMissing, observacoes: analysis.observacoes };
+          }
+        } catch (analysisErr: any) {
+          console.error(`[DocAnalysis] Falha ao processar ${input.name}:`, analysisErr?.message ?? analysisErr);
+          ocrData = {
+            tipo_documento: "Desconhecido",
+            campos_extraidos: {},
+            validacoes: { cpf_valido: false, nome_correspondente: false, datas_validas: false },
+            fraude_detectada: false,
+            score_confianca: 0,
+            observacoes: ["Erro interno na análise do documento. Reenvie o arquivo."],
+          };
+          await storage.updateEnrollmentStatus(
+            id,
+            "files_pending",
+            "Falha no processamento do documento de identidade. Reenvie o arquivo."
+          );
+          analysePendente = {
+            tipo: 'nao_identificado',
+            campos_nao_identificados: [],
+            observacoes: ["Erro ao processar o documento. Por favor, reenvie o arquivo com melhor qualidade."],
+          };
+        }
+      } else if (INCOME_DOC_TYPES.has(input.type)) {
         // ── Per-document OCR ────────────────────────────────────────────
         // householdSize = 1 here: we extract THIS PERSON'S income only.
         // Per-capita is computed later by recalculateFamilyIncome() once
@@ -346,7 +501,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         await recalculateFamilyIncome(id);
       }
 
-      res.status(201).json(doc);
+      if (analysePendente) {
+        res.status(201).json({ ...doc, analise_pendente: analysePendente });
+      } else {
+        res.status(201).json(doc);
+      }
     } catch (e) {
       res.status(400).json({ message: "Bad request" });
     }
@@ -537,13 +696,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Admin Routes
   app.get(api.admin.list.path, requireAdmin, async (req, res) => {
-    const enrollments = await storage.getEnrollments();
-    const result = await Promise.all(enrollments.map(async (e) => {
-      const docs = await storage.getDocuments(e.id);
-      const student = await storage.getUser(e.studentId);
-      return { ...e, documents: docs, student };
-    }));
-    res.json(result);
+    const attempt = () => storage.getEnrollmentsWithDetails();
+    try {
+      res.json(await attempt());
+    } catch (firstErr: any) {
+      // One auto-retry after a brief pause in case the pool had a stale connection.
+      console.warn("[Admin] Primeira tentativa falhou, retentando em 2s:", firstErr?.message);
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        res.json(await attempt());
+      } catch (err: any) {
+        console.error("[Admin] Erro ao listar inscrições:", err?.message ?? err);
+        res.status(500).json({ message: "Erro ao carregar inscrições. Tente novamente." });
+      }
+    }
   });
 
   app.patch(api.admin.updateStatus.path, requireAdmin, async (req, res) => {
@@ -602,8 +768,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
       await storage.updateEnrollmentStatus(e1.id, 'in_analysis', 'Elegível: Renda dentro do limite');
       
-      await storage.createDocument({ enrollmentId: e1.id, type: 'rg', name: 'rg_frente.png', url: 'mock', ocrData: null });
-      await storage.createDocument({ enrollmentId: e1.id, type: 'cpf', name: 'cpf.pdf', url: 'mock', ocrData: { extractedCpf: "111.222.333-44", valid: true } });
+      await storage.createDocument({ enrollmentId: e1.id, type: 'rg_frente', name: 'rg_frente.png', url: 'mock', ocrData: null });
+      await storage.createDocument({ enrollmentId: e1.id, type: 'rg_verso', name: 'rg_verso.png', url: 'mock', ocrData: null });
       await storage.createDocument({ enrollmentId: e1.id, type: 'income_proof', name: 'holerite.pdf', url: 'mock', ocrData: { extractedIncome: 1500, valid: true } });
 
       const e2 = await storage.createEnrollment({
@@ -617,7 +783,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   }
 
-  seedDatabase();
+  seedDatabase().catch((err) => {
+    console.warn("[Seed] Falha ao inicializar dados de demonstração (não crítico):", err?.message ?? err);
+  });
+
+  // Warm up the connection pool in the background so the first real requests are fast.
+  warmPool();
 
   return httpServer;
 }
