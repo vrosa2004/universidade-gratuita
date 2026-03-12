@@ -102,7 +102,7 @@ export default function AdminEnrollmentReview() {
   const handleStatusChange = async (status: 'approved' | 'rejected' | 'pending') => {
     try {
       await updateStatusMutation.mutateAsync({ id, status });
-      const labels: Record<string,string> = { approved: 'aprovada', rejected: 'rejeitada', pending: 'pendente' };
+      const labels: Record<string,string> = { approved: 'aprovada', rejected: 'rejeitada', pending: 'pendente', files_pending: 'com arquivos pendentes' };
       toast({ title: `Inscrição ${labels[status] ?? status} com sucesso` });
       setLocation('/admin/enrollments');
     } catch (e: any) {
@@ -193,7 +193,7 @@ export default function AdminEnrollmentReview() {
                   <CardContent className="p-6 space-y-4">
                     <div className="flex justify-between items-center mb-6">
                       <span className="text-sm font-semibold text-muted-foreground uppercase">Status Atual</span>
-                      <Badge className="capitalize">{{ pending: 'Pendente', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status as string] ?? enrollment.status}</Badge>
+                      <Badge className="capitalize">{{ pending: 'Pendente', files_pending: 'Arquivos Pendentes', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status as string] ?? enrollment.status}</Badge>
                     </div>
                     
                     <Button 
@@ -454,7 +454,7 @@ export default function AdminEnrollmentReview() {
                               <h4 className="font-semibold truncate">{doc.name}</h4>
                               <p className="text-xs text-muted-foreground flex items-center">
                                 <FileText className="w-3 h-3 mr-1" />
-                                Enviado em {format(new Date(doc.uploadedAt), 'dd/MM')}
+                                Enviado em {doc.uploadedAt ? format(new Date(doc.uploadedAt), 'dd/MM') : '—'}
                               </p>
                               
                               {/* OCR Income Validation Display */}

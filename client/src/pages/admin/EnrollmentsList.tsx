@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { format } from "date-fns";
 
 export default function AdminEnrollmentsList() {
-  const { data: enrollments = [], isLoading } = useAdminEnrollments();
+  const { data: enrollments = [], isLoading, isError, error, refetch } = useAdminEnrollments();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
@@ -22,6 +22,7 @@ export default function AdminEnrollmentsList() {
       case 'approved': return <Badge className="bg-green-100 text-green-800 hover:bg-green-200 border-0">Aprovado</Badge>;
       case 'rejected': return <Badge className="bg-red-100 text-red-800 hover:bg-red-200 border-0">Rejeitado</Badge>;
       case 'in_analysis': return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-0">Em Análise</Badge>;
+      case 'files_pending': return <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-200 border-0">Arquivos Pendentes</Badge>;
       default: return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-200 border-0">Pendente</Badge>;
     }
   };
@@ -92,6 +93,14 @@ export default function AdminEnrollmentsList() {
                       {isLoading ? (
                         <TableRow>
                           <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Carregando...</TableCell>
+                        </TableRow>
+                      ) : isError ? (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-12">
+                            <p className="text-red-600 font-medium mb-2">Erro ao carregar inscrições</p>
+                            <p className="text-xs text-muted-foreground mb-4">{(error as any)?.message}</p>
+                            <Button size="sm" variant="outline" onClick={() => refetch()}>Tentar novamente</Button>
+                          </TableCell>
                         </TableRow>
                       ) : filteredData.length === 0 ? (
                         <TableRow>

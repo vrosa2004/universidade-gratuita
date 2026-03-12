@@ -19,6 +19,8 @@ export default function StudentDashboard() {
         return { color: 'bg-red-100 text-red-800 border-red-200', icon: XCircle, text: 'Inscrição Rejeitada' };
       case 'in_analysis':
         return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: Clock, text: 'Em Análise' };
+      case 'files_pending':
+        return { color: 'bg-orange-100 text-orange-800 border-orange-200', icon: UploadCloud, text: 'Arquivos Pendentes' };
       default:
         return { color: 'bg-amber-100 text-amber-800 border-amber-200', icon: AlertCircle, text: 'Aguardando Envio' };
     }
@@ -27,11 +29,11 @@ export default function StudentDashboard() {
   const statusInfo = getStatusDisplay(enrollment?.status);
   const StatusIcon = statusInfo.icon;
 
-  const requiredDocs = ['rg', 'cpf', 'residence', 'transcript', 'income'];
+  const requiredDocs = ['rg_frente', 'residence', 'transcript', 'income'];
   const uploadedDocsCount = enrollment?.documents ? 
     requiredDocs.filter(type => enrollment.documents.some((d: any) => d.type === type)).length : 0;
   
-  const progressPercentage = enrollment ? ((uploadedDocsCount + (enrollment.name ? 1 : 0)) / 6) * 100 : 0;
+  const progressPercentage = enrollment ? ((uploadedDocsCount + (enrollment.name ? 1 : 0)) / 5) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-secondary/30">
@@ -114,7 +116,7 @@ export default function StudentDashboard() {
                         <div>
                           <h4 className="font-semibold text-primary-foreground/90 text-foreground">Ação Necessária</h4>
                           <p className="text-sm text-muted-foreground mt-1 mb-3">
-                            Você precisa completar seu perfil e enviar todos os 5 documentos obrigatórios antes de poder submeter sua inscrição para análise.
+                            Você precisa completar seu perfil e enviar todos os 4 documentos obrigatórios antes de poder submeter sua inscrição para análise.
                           </p>
                           <Link href="/student/enroll">
                             <Button variant="outline" className="rounded-lg border-primary/20 text-primary hover:bg-primary/10">
@@ -125,6 +127,64 @@ export default function StudentDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {enrollment.status === 'files_pending' && (() => {
+                    const IDENTITY_TYPES = new Set(['rg_frente']);
+                    const CAMPO = 'campo_nao_identificado';
+                    const campoLabels: Record<string, string> = {
+                      nome: 'Nome', cpf: 'CPF',
+                    };
+                    const docTypeLabels: Record<string, string> = {
+                      rg_frente: 'RG/CNH',
+                    };
+                    const problemDocs = ((enrollment.documents ?? []) as any[])
+                      .filter((d) => IDENTITY_TYPES.has(d.type) && d.ocrData?.campos_extraidos)
+                      .map((d) => ({
+                        typeLabel: docTypeLabels[d.type as string] ?? d.type,
+                        camposNI: Object.entries(d.ocrData.campos_extraidos as Record<string, string>)
+                          .filter(([, v]) => v === CAMPO)
+                          .map(([k]) => campoLabels[k] ?? k),
+                        observacao: (d.ocrData.observacoes as string[])?.find(
+                          (o: string) => !o.startsWith('Campos não identificados') && !o.startsWith('Baixa confiança')
+                        ) ?? null,
+                      }))
+                      .filter((d) => d.camposNI.length > 0);
+
+                    return (
+                      <div className="bg-orange-50 rounded-xl p-4 flex items-start gap-4 border border-orange-200">
+                        <UploadCloud className="h-6 w-6 text-orange-600 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <h4 className="font-semibold text-orange-800">Documentos com Pendências</h4>
+                          {problemDocs.length > 0 ? (
+                            <ul className="mt-2 mb-3 space-y-2">
+                              {problemDocs.map((d, i) => (
+                                <li key={i} className="text-sm text-orange-700 bg-white/60 border border-orange-200 rounded-lg px-3 py-2">
+                                  <span className="font-medium">{d.typeLabel}</span>:{' '}
+                                  não foi possível identificar{' '}
+                                  <span className="font-medium">{d.camposNI.join(', ')}</span>.
+                                  {d.observacao && (
+                                    <span className="block text-orange-600 text-xs mt-0.5">{d.observacao}</span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-orange-700 mt-1 mb-3">
+                              Alguns campos do seu documento de identidade não puderam ser lidos automaticamente.
+                            </p>
+                          )}
+                          <p className="text-xs text-orange-600 mb-3">
+                            Reenvie os arquivos com melhor qualidade de imagem ou iluminação adequada.
+                          </p>
+                          <Link href="/student/enroll">
+                            <Button variant="outline" className="rounded-lg border-orange-300 text-orange-800 hover:bg-orange-100">
+                              Reenviar Documentos
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {enrollment.status === 'in_analysis' && (
                     <div className="text-center py-8">
