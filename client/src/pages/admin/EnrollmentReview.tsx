@@ -102,7 +102,7 @@ export default function AdminEnrollmentReview() {
   const handleStatusChange = async (status: 'approved' | 'rejected' | 'pending') => {
     try {
       await updateStatusMutation.mutateAsync({ id, status });
-      const labels: Record<string,string> = { approved: 'aprovada', rejected: 'rejeitada', pending: 'pendente', files_pending: 'com arquivos pendentes' };
+      const labels: Record<string,string> = { approved: 'aprovada', rejected: 'rejeitada', pending: 'pendente' };
       toast({ title: `Inscrição ${labels[status] ?? status} com sucesso` });
       setLocation('/admin/enrollments');
     } catch (e: any) {
@@ -193,7 +193,7 @@ export default function AdminEnrollmentReview() {
                   <CardContent className="p-6 space-y-4">
                     <div className="flex justify-between items-center mb-6">
                       <span className="text-sm font-semibold text-muted-foreground uppercase">Status Atual</span>
-                      <Badge className="capitalize">{{ pending: 'Pendente', files_pending: 'Arquivos Pendentes', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status as string] ?? enrollment.status}</Badge>
+                      <Badge className="capitalize">{{ pending: 'Pendente', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status as string] ?? enrollment.status}</Badge>
                     </div>
                     
                     <Button 
@@ -454,10 +454,10 @@ export default function AdminEnrollmentReview() {
                               <h4 className="font-semibold truncate">{doc.name}</h4>
                               <p className="text-xs text-muted-foreground flex items-center">
                                 <FileText className="w-3 h-3 mr-1" />
-                                Enviado em {doc.uploadedAt ? format(new Date(doc.uploadedAt), 'dd/MM') : '—'}
+                                Enviado em {format(new Date(doc.uploadedAt), 'dd/MM')}
                               </p>
                               
-                              {/* OCR Income Validation Display */}
+                              {/* OCR Validation Display */}
                               <div className="mt-4 rounded-lg border border-border overflow-hidden">
                                 <div className="bg-secondary/50 px-3 py-2 flex items-center gap-1.5">
                                   <BrainCircuit className="w-3.5 h-3.5 text-primary" />
@@ -468,6 +468,111 @@ export default function AdminEnrollmentReview() {
 
                                 {doc.ocrData ? (() => {
                                   const ocr = doc.ocrData as any;
+                                  
+                                  // Check if this is an identity document analysis result
+                                  if (ocr.tipo_documento && ocr.campos_extraidos && ocr.validacoes) {
+                                    // Identity document validation display
+                                    const validationErrors = [];
+                                    if (!ocr.validacoes.cpf_valido && ocr.campos_extraidos.cpf !== "campo_nao_identificado") {
+                                      validationErrors.push("CPF inválido");
+                                    }
+                                    if (!ocr.validacoes.cpf_correspondente) {
+                                      validationErrors.push("CPF não corresponde");
+                                    }
+                                    if (!ocr.validacoes.nome_correspondente) {
+                                      validationErrors.push("Nome não corresponde");
+                                    }
+
+                                    const hasErrors = validationErrors.length > 0 || ocr.fraude_detectada;
+                                    const isLowConfidence = ocr.score_confianca < 0.4;
+
+                                    return (
+                                      <div className="p-3 space-y-2">
+                                        {/* Status pill for identity documents */}
+                                        <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${
+                                          ocr.fraude_detectada ? "bg-red-50" : 
+                                          hasErrors || isLowConfidence ? "bg-amber-50" : "bg-green-50"
+                                        }`}>
+                                          <span className={
+                                            ocr.fraude_detectada ? "text-red-700" : 
+                                            hasErrors || isLowConfidence ? "text-amber-700" : "text-green-700"
+                                          }>
+                                            {ocr.fraude_detectada ? <XCircle className="w-4 h-4" /> : 
+                                             hasErrors || isLowConfidence ? <AlertCircle className="w-4 h-4" /> : 
+                                             <ShieldCheck className="w-4 h-4" />}
+                                          </span>
+                                          <span className={`text-xs font-bold ${
+                                            ocr.fraude_detectada ? "text-red-700" : 
+                                            hasErrors || isLowConfidence ? "text-amber-700" : "text-green-700"
+                                          }`}>
+                                            {ocr.fraude_detectada ? "Fraude Detectada" : 
+                                             hasErrors ? "Validação Falhada" :
+                                             isLowConfidence ? "Baixa Confiança" : "Validado"}
+                                          </span>
+                                          <span className="ml-auto text-xs text-muted-foreground">
+                                            {Math.round(ocr.score_confianca * 100)}% confiança
+                                          </span>
+                                        </div>
+
+                                        {/* Fields extracted */}
+                                        <div className="space-y-1 text-xs">
+                                          <div className="text-muted-foreground font-medium">Campos extraídos:</div>
+                                          <div className="grid grid-cols-2 gap-2 bg-muted/30 rounded p-2">
+                                            <div>
+                                              <div className="text-muted-foreground">Nome:</div>
+                                              <div className="font-medium">
+                                                {ocr.campos_extraidos.nome !== "campo_nao_identificado" ? 
+                                                  ocr.campos_extraidos.nome : 
+                                                  <span className="italic text-amber-600">Não identificado</span>}
+                                              </div>
+                                            </div>
+                                            <div>
+                                              <div className="text-muted-foreground">CPF:</div>
+                                              <div className="font-medium">
+                                                {ocr.campos_extraidos.cpf !== "campo_nao_identificado" ? 
+                                                  ocr.campos_extraidos.cpf : 
+                                                  <span className="italic text-amber-600">Não identificado</span>}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Validation results */}
+                                        <div className="space-y-1 text-xs">
+                                          <div className="text-muted-foreground font-medium">Validações:</div>
+                                          <div className="space-y-1">
+                                            <div className={`flex justify-between ${ocr.validacoes.cpf_valido ? 'text-green-600' : 'text-red-600'}`}>
+                                              <span>CPF válido</span>
+                                              <span>{ocr.validacoes.cpf_valido ? '✓' : '✗'}</span>
+                                            </div>
+                                            <div className={`flex justify-between ${ocr.validacoes.cpf_correspondente ? 'text-green-600' : 'text-red-600'}`}>
+                                              <span>CPF corresponde</span>
+                                              <span>{ocr.validacoes.cpf_correspondente ? '✓' : '✗'}</span>
+                                            </div>
+                                            <div className={`flex justify-between ${ocr.validacoes.nome_correspondente ? 'text-green-600' : 'text-red-600'}`}>
+                                              <span>Nome corresponde</span>
+                                              <span>{ocr.validacoes.nome_correspondente ? '✓' : '✗'}</span>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Observations */}
+                                        {ocr.observacoes && ocr.observacoes.length > 0 && (
+                                          <div className="text-xs text-muted-foreground italic border-t border-border/40 pt-2">
+                                            <div className="font-medium mb-1">Observações:</div>
+                                            {ocr.observacoes.slice(0, 3).map((obs: string, idx: number) => (
+                                              <div key={idx}>• {obs}</div>
+                                            ))}
+                                            {ocr.observacoes.length > 3 && (
+                                              <div className="text-muted-foreground/70">... e mais {ocr.observacoes.length - 3} observação(ões)</div>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                  
+                                  // Income document validation display (existing code)
                                   const statusStyles: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
                                     APROVADO:       { bg: "bg-green-50",  text: "text-green-700",  icon: <ShieldCheck className="w-4 h-4" /> },
                                     REPROVADO:      { bg: "bg-red-50",    text: "text-red-700",    icon: <XCircle className="w-4 h-4" /> },
