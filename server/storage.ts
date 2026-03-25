@@ -1,15 +1,5 @@
 import "dotenv/config";
-import {
-  type User,
-  type InsertUser,
-  type Enrollment,
-  type InsertEnrollment,
-  type Document,
-  type InsertDocument,
-  users,
-  enrollments,
-  documents,
-} from "@shared/schema";
+import { type User, type InsertUser, type Enrollment, type InsertEnrollment, type Document, type InsertDocument, users, enrollments, documents } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq } from "drizzle-orm";
 
@@ -37,7 +27,7 @@ export interface IStorage {
   createDocument(doc: InsertDocument & { enrollmentId: number; url: string; ocrData?: unknown }): Promise<Document>;
   deleteDocument(id: number): Promise<void>;
 
-  /** Fetch all enrollments together with their documents and students in 2 queries. */
+  /** Fetch all enrollments together with their documents and students. */
   getEnrollmentsWithDetails(): Promise<EnrollmentWithDetails[]>;
 }
 
@@ -80,6 +70,7 @@ export class MemStorage implements IStorage {
     const id = this.currentEnrollmentId++;
     const enrollment: Enrollment = {
       name: null,
+      address: null,
       cpf: null,
       dateOfBirth: null,
       income: null,
@@ -151,6 +142,119 @@ export class MemStorage implements IStorage {
 // PostgreSQL storage (production)
 // ---------------------------------------------------------------------------
 export class DrizzleStorage implements IStorage {
+  private hasAddressColumnCached: boolean | null = null;
+  private hasAddressColumnCheckedAt = 0;
+  private fallbackAddressTableEnsured = false;
+
+  private async hasAddressColumn(forceRefresh = false): Promise<boolean> {
+    const now = Date.now();
+    if (!forceRefresh && this.hasAddressColumnCached === true) return true;
+    if (
+      !forceRefresh &&
+      this.hasAddressColumnCached === false &&
+      now - this.hasAddressColumnCheckedAt < 30_000
+    ) {
+      return false;
+    }
+
+    const result = await pool.query(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'enrollments'
+            AND column_name = 'address'
+        ) AS ok
+      `
+    );
+
+    this.hasAddressColumnCached = !!result.rows?.[0]?.ok;
+    this.hasAddressColumnCheckedAt = now;
+    return this.hasAddressColumnCached;
+  }
+
+  private async ensureAddressColumnIfNeeded(): Promise<void> {
+    const client = await pool.connect();
+    try {
+      await client.query("SET lock_timeout = '5000ms'");
+      await client.query('ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS address text');
+      this.hasAddressColumnCached = true;
+      this.hasAddressColumnCheckedAt = Date.now();
+    } finally {
+      client.release();
+    }
+  }
+
+  private async ensureFallbackAddressTable(): Promise<void> {
+    if (this.fallbackAddressTableEnsured) return;
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS enrollment_addresses (
+        enrollment_id integer PRIMARY KEY,
+        address text NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    this.fallbackAddressTableEnsured = true;
+  }
+
+  private async upsertFallbackAddress(enrollmentId: number, address: string): Promise<void> {
+    await this.ensureFallbackAddressTable();
+    await pool.query(
+      `
+        INSERT INTO enrollment_addresses (enrollment_id, address)
+        VALUES ($1, $2)
+        ON CONFLICT (enrollment_id)
+        DO UPDATE SET address = EXCLUDED.address, updated_at = now()
+      `,
+      [enrollmentId, address],
+    );
+  }
+
+  private buildEnrollmentSelectSql(whereClause = "", orderClause = ""): string {
+    return `
+      SELECT
+        e.id,
+        e.student_id AS "studentId",
+        e.status,
+        e.name,
+        ${"${ADDRESS_EXPR}"} AS "address",
+        e.cpf,
+        e.date_of_birth AS "dateOfBirth",
+        e.income,
+        e.monthly_expenses AS "monthlyExpenses",
+        e.income_category AS "incomeCategory",
+        e.has_formal_employment_history AS "hasFormalEmploymentHistory",
+        e.has_variable_income AS "hasVariableIncome",
+        e.is_company_active AS "isCompanyActive",
+        e.has_pro_labore AS "hasProLabore",
+        e.household_size AS "householdSize",
+        e.per_capita_income AS "perCapitaIncome",
+        e.system_decision AS "systemDecision",
+        e.created_at AS "createdAt"
+      FROM enrollments e
+      ${whereClause}
+      ${orderClause}
+    `;
+  }
+
+  private async selectEnrollments(whereClause = "", params: any[] = [], orderClause = ""): Promise<Enrollment[]> {
+    const hasAddress = await this.hasAddressColumn();
+    if (!hasAddress) {
+      await this.ensureFallbackAddressTable();
+    }
+    const sql = this
+      .buildEnrollmentSelectSql(whereClause, orderClause)
+      .replace(
+        "${ADDRESS_EXPR}",
+        hasAddress
+          ? "e.address"
+          : "(SELECT ea.address FROM enrollment_addresses ea WHERE ea.enrollment_id = e.id)",
+      );
+    const result = await pool.query(sql, params);
+    return result.rows as Enrollment[];
+  }
+
   // Users
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -169,36 +273,85 @@ export class DrizzleStorage implements IStorage {
 
   // Enrollments
   async getEnrollment(id: number): Promise<Enrollment | undefined> {
-    const [row] = await db.select().from(enrollments).where(eq(enrollments.id, id));
-    return row;
+    const rows = await this.selectEnrollments("WHERE e.id = $1", [id]);
+    return rows[0];
   }
 
   async getEnrollmentByStudent(studentId: number): Promise<Enrollment | undefined> {
-    const [row] = await db.select().from(enrollments).where(eq(enrollments.studentId, studentId));
-    return row;
+    const rows = await this.selectEnrollments("WHERE e.student_id = $1", [studentId]);
+    return rows[0];
   }
 
   async getEnrollments(): Promise<Enrollment[]> {
-    return db.select().from(enrollments);
+    return this.selectEnrollments("", [], "ORDER BY e.id DESC");
   }
 
   async createEnrollment(enrollment: InsertEnrollment & { studentId: number }): Promise<Enrollment> {
-    const [row] = await db.insert(enrollments).values(enrollment).returning();
-    return row;
+    const values: any = { ...enrollment };
+    const fallbackAddress = typeof values.address === "string" ? values.address : undefined;
+    let hasAddress = await this.hasAddressColumn();
+    if (!hasAddress && values.address != null) {
+      try {
+        await this.ensureAddressColumnIfNeeded();
+        hasAddress = await this.hasAddressColumn(true);
+      } catch {
+        hasAddress = false;
+      }
+    }
+    if (hasAddress) {
+      const [row] = await db.insert(enrollments).values(values).returning();
+      return row;
+    }
+    delete values.address;
+    const [inserted] = await db.insert(enrollments).values(values).returning({ id: enrollments.id });
+    if (fallbackAddress) {
+      await this.upsertFallbackAddress(inserted.id, fallbackAddress);
+    }
+    const rows = await this.selectEnrollments("WHERE e.id = $1", [inserted.id]);
+    if (!rows[0]) throw new Error("Enrollment not found after insert");
+    return rows[0];
   }
 
   async updateEnrollment(id: number, updates: Partial<InsertEnrollment>): Promise<Enrollment> {
-    const [row] = await db.update(enrollments).set(updates).where(eq(enrollments.id, id)).returning();
-    if (!row) throw new Error("Enrollment not found");
-    return row;
+    const setValues: any = { ...updates };
+    const fallbackAddress = typeof setValues.address === "string" ? setValues.address : undefined;
+    let hasAddress = await this.hasAddressColumn();
+    if (!hasAddress && setValues.address != null) {
+      try {
+        await this.ensureAddressColumnIfNeeded();
+        hasAddress = await this.hasAddressColumn(true);
+      } catch {
+        hasAddress = false;
+      }
+    }
+    if (hasAddress) {
+      const [row] = await db.update(enrollments).set(setValues).where(eq(enrollments.id, id)).returning();
+      if (!row) throw new Error("Enrollment not found");
+      return row;
+    }
+    delete setValues.address;
+    await db.update(enrollments).set(setValues).where(eq(enrollments.id, id));
+    if (fallbackAddress) {
+      await this.upsertFallbackAddress(id, fallbackAddress);
+    }
+    const rows = await this.selectEnrollments("WHERE e.id = $1", [id]);
+    if (!rows[0]) throw new Error("Enrollment not found");
+    return rows[0];
   }
 
   async updateEnrollmentStatus(id: number, status: string, systemDecision?: string): Promise<Enrollment> {
     const set: any = { status };
     if (systemDecision !== undefined) set.systemDecision = systemDecision;
-    const [row] = await db.update(enrollments).set(set).where(eq(enrollments.id, id)).returning();
-    if (!row) throw new Error("Enrollment not found");
-    return row;
+    const hasAddress = await this.hasAddressColumn();
+    if (hasAddress) {
+      const [row] = await db.update(enrollments).set(set).where(eq(enrollments.id, id)).returning();
+      if (!row) throw new Error("Enrollment not found");
+      return row;
+    }
+    await db.update(enrollments).set(set).where(eq(enrollments.id, id));
+    const rows = await this.selectEnrollments("WHERE e.id = $1", [id]);
+    if (!rows[0]) throw new Error("Enrollment not found");
+    return rows[0];
   }
 
   // Documents
@@ -215,18 +368,21 @@ export class DrizzleStorage implements IStorage {
     await db.delete(documents).where(eq(documents.id, id));
   }
 
-  /** Fetch all enrollments with their documents and students using a single JOIN query. */
   async getEnrollmentsWithDetails(): Promise<EnrollmentWithDetails[]> {
-    // Single pool.query() with LEFT JOINs — works under any PgBouncer pool mode because
-    // the entire operation is one auto-committed transaction that never needs to hold a
-    // connection across multiple round-trips.
-
+    const hasAddress = await this.hasAddressColumn();
+    if (!hasAddress) {
+      await this.ensureFallbackAddressTable();
+    }
+    const addressExpr = hasAddress
+      ? "e.address"
+      : "(SELECT ea.address FROM enrollment_addresses ea WHERE ea.enrollment_id = e.id)";
     const sql = `
       SELECT
         e.id,
         e.student_id       AS "studentId",
         e.status,
         e.name,
+        ${addressExpr} AS "address",
         e.cpf,
         e.date_of_birth    AS "dateOfBirth",
         e.income,

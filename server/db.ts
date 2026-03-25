@@ -37,6 +37,24 @@ pool.on("error", (err) => {
 export const db = drizzle(pool, { schema });
 
 /**
+ * Applies non-destructive schema compatibility patches required by newer code.
+ * This prevents runtime 500s when the app is deployed before manual migrations.
+ */
+export async function ensureSchemaCompatibility(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("SET lock_timeout = '800ms'");
+    await client.query("SET statement_timeout = '3000ms'");
+    await client.query('ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS address text');
+    console.log('[DB] Schema compatibility check applied (enrollments.address).');
+  } catch (err: any) {
+    console.warn(`[DB] Schema compatibility check failed: ${err?.message ?? err}`);
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Warm up the connection pool by running a trivial query.
  * Retries up to `retries` times with `delayMs` between attempts.
  * Never throws — just logs so the server always boots.
