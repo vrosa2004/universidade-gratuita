@@ -29,7 +29,6 @@ type IncomeCategoryKey = keyof typeof INCOME_CATEGORIES;
 
 interface FormData {
   name: string;
-  address: string;
   cpf: string;
   dateOfBirth: string;
   income: string;
@@ -115,7 +114,6 @@ export default function StudentEnrollment() {
 
   const [formData, setFormData] = useState<FormData>({
     name: '',
-    address: '',
     cpf: '',
     dateOfBirth: '',
     income: '',
@@ -132,7 +130,6 @@ export default function StudentEnrollment() {
     if (enrollment) {
       setFormData({
         name: enrollment.name || '',
-        address: enrollment.address || '',
         cpf: enrollment.cpf || '',
         dateOfBirth: enrollment.dateOfBirth || '',
         income: enrollment.income?.toString() || '',
@@ -167,7 +164,6 @@ export default function StudentEnrollment() {
     try {
       const payload: Record<string, unknown> = {
         name: formData.name,
-        address: formData.address,
         cpf: formData.cpf,
         dateOfBirth: formData.dateOfBirth,
         income: formData.income ? parseInt(formData.income) : undefined,
@@ -212,11 +208,10 @@ export default function StudentEnrollment() {
           data: { type: type as any, name: file.name, base64Content },
         });
         uploaded++;
-
         const ap = (doc as any).analise_pendente as { tipo: 'nao_identificado' | 'nao_correspondente'; campos_nao_identificados: string[]; observacoes: string[] } | undefined;
         if (ap) {
           hadAnalysisError = true;
-          const campoLabels: Record<string, string> = { nome: 'nome', cpf: 'CPF', endereco: 'endereço' };
+          const campoLabels: Record<string, string> = { nome: 'nome', cpf: 'CPF' };
           const lista = ap.campos_nao_identificados.length
             ? ap.campos_nao_identificados.map((c) => campoLabels[c] ?? c).join(', ')
             : 'documento';
@@ -224,13 +219,13 @@ export default function StudentEnrollment() {
             toast({
               variant: 'destructive',
               title: `Documento não corresponde aos dados cadastrados`,
-              description: `O ${lista} do comprovante não confere com o ${lista} informado no cadastro. Verifique e reenvie o arquivo.`,
+              description: `O ${lista} encontrado no documento não bate com o ${lista} informado no cadastro. Verifique se enviou o documento correto e tente novamente.`,
             });
           } else {
             toast({
               variant: 'destructive',
               title: `Campo não identificado: ${lista}`,
-              description: `Não foi possível validar automaticamente o ${lista}. Reenvie o documento completo e legível.`,
+              description: `Não foi possível ler o ${lista} no documento. Envie o documento completo e sem recortes — a página inteira, não apenas uma parte.`,
             });
           }
         }
@@ -239,7 +234,10 @@ export default function StudentEnrollment() {
       }
     }
     if (uploaded > 0 && !hadAnalysisError) {
-      toast({ title: uploaded === 1 ? "Documento enviado!" : `${uploaded} documentos enviados!` });
+      toast({
+        title: uploaded === 1 ? "Documento enviado com sucesso!" : `${uploaded} documentos enviados com sucesso!`,
+        description: "Os dados do documento foram verificados e correspondem ao cadastro.",
+      });
     }
     if (uploaded === files.length) setEditingDoc(null);
   };
@@ -276,7 +274,7 @@ export default function StudentEnrollment() {
   const allDocs: any[] = enrollment?.documents ?? [];
   const uploadedTypes: string[] = allDocs.map((d) => d.type);
   const isFinalized = enrollment?.status === 'approved' || enrollment?.status === 'rejected';
-  const isLocked = !!(enrollment && ['in_analysis', 'approved', 'rejected'].includes(enrollment.status));
+  const isLocked = !!(enrollment && enrollment.status !== 'pending');
 
   const isPayslip3Mode = formData.incomeCategory === 'salaried' && formData.hasVariableIncome === false;
   const numOutrosMembros = Math.max(0, (parseInt(formData.householdSize) || 1) - 1);
@@ -313,7 +311,7 @@ export default function StudentEnrollment() {
   }, [requiredAttachments, uploadedTypes, isPayslip3Mode, numOutrosMembros]);
 
   const canSubmit =
-    !!enrollment?.name && !!enrollment?.address && !!enrollment?.cpf &&
+    !!enrollment?.name && !!enrollment?.cpf &&
     !!enrollment?.incomeCategory &&
     missingRequired.length === 0 && !isFinalized;
 
@@ -344,12 +342,6 @@ export default function StudentEnrollment() {
                 <Input id="name" value={formData.name} disabled={isLocked}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="h-12 rounded-xl" placeholder="João Silva" />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="address">Endereço Completo</Label>
-                <Input id="address" value={formData.address} disabled={isLocked}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                  className="h-12 rounded-xl" placeholder="Rua Exemplo, 123 - Bairro Centro, Cidade/UF" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cpf">CPF</Label>
@@ -489,7 +481,7 @@ export default function StudentEnrollment() {
             <div className="pt-4 flex justify-end">
               <Button
                 onClick={handleSavePersonal}
-                disabled={isSaving || !formData.name || !formData.address || !formData.cpf || !validateCpf(formData.cpf) || isLocked}
+                disabled={isSaving || !formData.name || !formData.cpf || !validateCpf(formData.cpf) || isLocked}
                 className="h-12 px-8 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
               >
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -639,23 +631,68 @@ export default function StudentEnrollment() {
                           {/* Uploaded files list */}
                           {typeDocs.length > 0 && (
                             <div className="border-t border-border/20 px-4 pb-3 pt-2 flex flex-col gap-1.5">
-                              {typeDocs.map((doc) => (
-                                <div key={doc.id} className="flex items-center gap-2 rounded-lg bg-background/60 border border-border/40 px-3 py-2">
-                                  <FileText className="h-4 w-4 text-primary shrink-0" />
-                                  <span className="text-xs font-medium flex-1 truncate">{doc.name}</span>
-                                  {!isFinalized && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 w-6 p-0 rounded-md text-muted-foreground hover:text-destructive shrink-0"
-                                      onClick={() => handleDeleteDoc(doc.id)}
-                                      disabled={deleteMutation.isPending}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  )}
-                                </div>
-                              ))}
+                              {(() => {
+                                const CAMPO = 'campo_nao_identificado';
+                                // Per-field collective coverage: for each blocking field, check
+                                // whether ANY uploaded doc of this type has already identified it.
+                                // A warning is shown only for fields not yet covered by any file.
+                                const BLOCKING_FIELDS_SET = new Set(['nome', 'cpf']);
+                                const coveredFields = (() => {
+                                  const covered = new Set<string>();
+                                  if (att.key !== 'rg_frente') return covered;
+                                  for (const d of typeDocs) {
+                                    const ocr = (d as any).ocrData as any;
+                                    if (!ocr?.campos_extraidos) continue;
+                                    for (const field of BLOCKING_FIELDS_SET) {
+                                      const val = ocr.campos_extraidos[field];
+                                      if (val && val !== CAMPO) covered.add(field);
+                                    }
+                                  }
+                                  return covered;
+                                })();
+                                return typeDocs.map((doc) => {
+                                  const isIdentityDoc = att.key === 'rg_frente';
+                                  const ocrData = (doc as any).ocrData as any;
+                                  const campoLabels: Record<string, string> = { nome: 'Nome', cpf: 'CPF' };
+                                  const BLOCKING_FIELDS = new Set(['nome', 'cpf']);
+                                  // For each blocking field on this doc: suppress the warning if
+                                  // that specific field was already identified in any sibling doc.
+                                  const camposNI = isIdentityDoc && ocrData?.campos_extraidos
+                                    ? Object.entries(ocrData.campos_extraidos as Record<string, string>)
+                                        .filter(([k, v]) => BLOCKING_FIELDS.has(k) && v === CAMPO && !coveredFields.has(k))
+                                        .map(([k]) => campoLabels[k] ?? k)
+                                    : [];
+                                  return (
+                                    <div key={doc.id} className="flex flex-col gap-1">
+                                      <div className="flex items-center gap-2 rounded-lg bg-background/60 border border-border/40 px-3 py-2">
+                                        <FileText className="h-4 w-4 text-primary shrink-0" />
+                                        <span className="text-xs font-medium flex-1 truncate">{doc.name}</span>
+                                        {!isFinalized && (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0 rounded-md text-muted-foreground hover:text-destructive shrink-0"
+                                            onClick={() => handleDeleteDoc(doc.id)}
+                                            disabled={deleteMutation.isPending}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </Button>
+                                        )}
+                                      </div>
+                                      {camposNI.length > 0 && (
+                                        <div className="flex items-start gap-2 rounded-lg bg-orange-50 border border-orange-200 px-3 py-2 text-xs text-orange-700">
+                                          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-orange-500" />
+                                        <span>Campos não identificados:
+                                          {camposNI.map((c, i) => (
+                                            <span key={c}>{i > 0 ? ', ' : ' '}<span className="font-semibold">{c}</span></span>
+                                          ))}.
+                                        </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              })()}
                             </div>
                           )}
                         </div>
@@ -742,6 +779,11 @@ export default function StudentEnrollment() {
                 disabled={uploadMutation.isPending}
               />
             </div>
+            {editingDoc?.key === 'rg_frente' && (
+              <p className="mt-3 text-xs text-muted-foreground text-center">
+                ⚠️ Envie a <span className="font-medium">página completa</span> do documento. Você pode enviar um PDF com frente e verso ou uma foto da página inteira — sem cortar ou dividir a imagem.
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

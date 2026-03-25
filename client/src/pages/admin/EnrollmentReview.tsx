@@ -99,15 +99,10 @@ export default function AdminEnrollmentReview() {
     }
   }
 
-  const handleStatusChange = async (status: 'approved' | 'rejected' | 'pending' | 'files_pending') => {
+  const handleStatusChange = async (status: 'approved' | 'rejected' | 'pending') => {
     try {
       await updateStatusMutation.mutateAsync({ id, status });
-      const labels: Record<string,string> = {
-        approved: 'aprovada',
-        rejected: 'rejeitada',
-        pending: 'pendente',
-        files_pending: 'com documentos pendentes',
-      };
+      const labels: Record<string,string> = { approved: 'aprovada', rejected: 'rejeitada', pending: 'pendente' };
       toast({ title: `Inscrição ${labels[status] ?? status} com sucesso` });
       setLocation('/admin/enrollments');
     } catch (e: any) {
@@ -198,7 +193,7 @@ export default function AdminEnrollmentReview() {
                   <CardContent className="p-6 space-y-4">
                     <div className="flex justify-between items-center mb-6">
                       <span className="text-sm font-semibold text-muted-foreground uppercase">Status Atual</span>
-                      <Badge className="capitalize">{{ pending: 'Pendente', files_pending: 'Docs Pendentes', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status as string] ?? enrollment.status}</Badge>
+                      <Badge className="capitalize">{{ pending: 'Pendente', in_analysis: 'Em Análise', approved: 'Aprovado', rejected: 'Rejeitado' }[enrollment.status as string] ?? enrollment.status}</Badge>
                     </div>
                     
                     <Button 
@@ -217,7 +212,7 @@ export default function AdminEnrollmentReview() {
                       <XCircle className="mr-2 h-5 w-5" /> Rejeitar Inscrição
                     </Button>
                     <Button 
-                      onClick={() => handleStatusChange('files_pending')} 
+                      onClick={() => handleStatusChange('pending')} 
                       disabled={updateStatusMutation.isPending}
                       variant="outline"
                       className="w-full h-12 rounded-xl font-bold text-md"
@@ -257,7 +252,6 @@ export default function AdminEnrollmentReview() {
                   <CardContent className="space-y-4">
                     {[
                       { label: 'Nome', value: enrollment.name },
-                      { label: 'Endereço', value: enrollment.address },
                       { label: 'CPF', value: enrollment.cpf },
                       { label: 'Data de Nascimento', value: enrollment.dateOfBirth },
                       { label: 'Renda Bruta Declarada', value: enrollment.income ? `R$ ${enrollment.income.toLocaleString('pt-BR')}` : null },
@@ -638,30 +632,6 @@ export default function AdminEnrollmentReview() {
                                               <span className="tabular-nums">
                                                 R$ {(ocr.limitePermitido as number).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                               </span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-
-                                      {(ocr.enderecoDeclarado || ocr.enderecoExtraido) && (
-                                        <div className="space-y-1 text-xs border-t border-border/40 pt-2">
-                                          <p className="font-semibold text-muted-foreground">Validação de endereço</p>
-                                          {ocr.enderecoDeclarado && (
-                                            <div>
-                                              <span className="text-muted-foreground">Informado no cadastro:</span>{' '}
-                                              <span className="font-medium">{ocr.enderecoDeclarado}</span>
-                                            </div>
-                                          )}
-                                          {ocr.enderecoExtraido && (
-                                            <div>
-                                              <span className="text-muted-foreground">Extraído do comprovante:</span>{' '}
-                                              <span className="font-medium">{ocr.enderecoExtraido}</span>
-                                            </div>
-                                          )}
-                                          {ocr.scoreCorrespondencia != null && (
-                                            <div className="flex justify-between text-muted-foreground/80">
-                                              <span>Score de correspondência</span>
-                                              <span>{Math.round(Number(ocr.scoreCorrespondencia) * 100)}%</span>
                                             </div>
                                           )}
                                         </div>
