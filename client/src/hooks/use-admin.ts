@@ -46,7 +46,7 @@ export function useAdminEnrollments() {
 export function useUpdateEnrollmentStatus() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: 'pending' | 'files_pending' | 'in_analysis' | 'approved' | 'rejected' }) => {
+    mutationFn: async ({ id, status }: { id: number; status: 'pending' | 'in_analysis' | 'approved' | 'rejected' }) => {
       const url = buildUrl(api.admin.updateStatus.path, { id });
       const res = await fetch(url, {
         method: api.admin.updateStatus.method,
