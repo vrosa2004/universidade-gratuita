@@ -4,6 +4,14 @@
  * - Images  → pre-processed with sharp (grayscale + CLAHE + sharpen) then Tesseract.js
  * - PDFs    → pdf2json (embedded text extraction); falls back to REVISAO_MANUAL
  *             if the PDF has no selectable text (scanned).
+ *
+ * Optimizações aplicadas:
+ *  1. Tesseract PSM 6 e PSM 4 agora rodam em paralelo (Promise.all).
+ *  2. OCR de páginas PDF escanadas agora roda em paralelo por página.
+ *  3. preprocessImage faz early-exit para imagens já em boa resolução,
+ *     evitando o pipeline completo de sharp + CLAHE desnecessariamente.
+ *  4. Worker pool de Tesseract reutilizável para evitar overhead de
+ *     inicialização a cada chamada.
  */
 
 import Tesseract from "tesseract.js";
@@ -12,16 +20,63 @@ import sharp from "sharp";
 
 const require = createRequire(import.meta.url);
 
-const OCR_TIMEOUT_MS = 60_000; // 60 s max per document (preprocessing adds ~5s)
+const OCR_TIMEOUT_MS = 60_000; // 60 s max por documento
 
 /** Result returned by every extractor. */
 export interface OcrExtractionResult {
   text: string;
-  /** 0-100 confidence score; PDFs via text-layer return 80 by convention. */
+  /** 0-100 confidence score; PDFs via text-layer return 80 por convenção. */
   confidence: number;
-  /** MIME type detected from the data-URL header. */
+  /** MIME type detectado do header da data-URL. */
   mimeType: string;
 }
+
+// ── Worker pool ──────────────────────────────────────────────────────────────
+
+/**
+ * Pool de workers Tesseract reutilizáveis.
+ * Evita overhead de inicialização (~300-500ms) a cada chamada de OCR.
+ * Dois workers permitem rodar PSM 6 e PSM 4 verdadeiramente em paralelo.
+ */
+const POOL_SIZE = 2;
+let workerPool: Tesseract.Worker[] | null = null;
+let workerIndex = 0;
+
+async function getWorkerPool(): Promise<Tesseract.Worker[]> {
+  if (workerPool) return workerPool;
+
+  workerPool = await Promise.all(
+    Array.from({ length: POOL_SIZE }, () =>
+      Tesseract.createWorker("por", 1, { logger: () => {} })
+    )
+  );
+
+  console.log(`[OCR] Worker pool inicializado com ${POOL_SIZE} workers.`);
+  return workerPool;
+}
+
+/**
+ * Devolve o próximo worker disponível em round-robin.
+ * Round-robin simples é suficiente pois os dois passes são disparados juntos.
+ */
+async function acquireWorker(): Promise<Tesseract.Worker> {
+  const pool = await getWorkerPool();
+  const worker = pool[workerIndex % POOL_SIZE];
+  workerIndex++;
+  return worker;
+}
+
+/**
+ * Libera todos os workers do pool (use ao encerrar o processo).
+ */
+export async function terminateWorkerPool(): Promise<void> {
+  if (!workerPool) return;
+  await Promise.all(workerPool.map((w) => w.terminate()));
+  workerPool = null;
+  console.log("[OCR] Worker pool encerrado.");
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Main entry point.
@@ -54,51 +109,86 @@ export async function extractTextFromDataUrl(
 // ── Private helpers ──────────────────────────────────────────────────────────
 
 /**
- * Pre-process image with sharp for better OCR:
- *  1. Ensure minimum 2000px width (Tesseract needs ~300 DPI)
- *  2. Convert to greyscale
- *  3. CLAHE – adaptive local contrast enhancement (better than normalize for docs)
- *  4. Moderate sharpen to crisp text edges
+ * Pre-processa imagem com sharp para melhor qualidade de OCR.
  *
- * Returns a PNG buffer (lossless, no JPEG artefacts).
+ * Otimização: imagens já em boa resolução (≥1500px) pulam o pipeline
+ * completo (CLAHE + sharpen) e passam apenas por greyscale → PNG,
+ * economizando ~1-3s de processamento por chamada.
+ *
+ * Pipeline completo (imagens pequenas):
+ *  1. Upscale para mínimo de 1500px de largura (Tesseract precisa ~300 DPI)
+ *  2. Greyscale
+ *  3. CLAHE – contraste adaptativo local (melhor que normalize para docs)
+ *  4. Sharpen moderado para realçar bordas do texto
+ *
+ * Retorna buffer PNG (lossless, sem artefatos JPEG).
  */
 async function preprocessImage(raw: Buffer): Promise<Buffer> {
   try {
     const meta = await sharp(raw).metadata();
     const w = meta.width ?? 1;
-    // Upscale if image is too small (< 1500px wide) — Tesseract needs ~300 DPI
-    const scaleUp = w < 1500 ? Math.min(4, Math.ceil(1500 / w)) : 1;
 
-    let pipeline = sharp(raw);
-    if (scaleUp > 1) {
-      pipeline = pipeline.resize({ width: w * scaleUp, kernel: "lanczos3" });
+    // ── Early exit: imagem já em boa resolução ──
+    // Pula CLAHE + sharpen (pesados) e faz só greyscale → PNG.
+    if (w >= 1500) {
+      return await sharp(raw).greyscale().png().toBuffer();
     }
-    return await pipeline
+
+    // ── Pipeline completo para imagens pequenas ──
+    const scaleUp = Math.min(4, Math.ceil(1500 / w));
+    return await sharp(raw)
+      .resize({ width: w * scaleUp, kernel: "lanczos3" })
       .greyscale()
-      .clahe({ width: 8, height: 8, maxSlope: 4 }) // adaptive local contrast
+      .clahe({ width: 8, height: 8, maxSlope: 4 })
       .sharpen({ sigma: 1.0, m1: 1.0, m2: 5 })
       .png()
       .toBuffer();
   } catch (err: any) {
-    console.warn("[OCR] Pre-processamento falhou, usando imagem original:", err?.message);
+    console.warn("[OCR] Pré-processamento falhou, usando imagem original:", err?.message);
     return raw;
   }
 }
 
 /**
- * Run a single Tesseract pass with the given PSM mode.
- * Returns { text, confidence }.
+ * Roda um passe Tesseract com o PSM indicado usando um worker do pool.
+ *
+ * Usa worker reutilizável para evitar overhead de inicialização.
  */
 async function tesseractPass(
   imageBuffer: Buffer,
   psm: number
 ): Promise<{ text: string; confidence: number }> {
-  const result = await Tesseract.recognize(imageBuffer, "por", {
-    logger: () => {},
+  const worker = await acquireWorker();
+  const result = await worker.recognize(imageBuffer, {
     tessedit_pageseg_mode: psm as any,
     preserve_interword_spaces: "1",
   } as any);
   return { text: result.data.text, confidence: result.data.confidence };
+}
+
+/**
+ * Roda PSM 6 e PSM 4 em paralelo e retorna o melhor resultado.
+ * Antes: sequencial (~2× o tempo de OCR).
+ * Agora: paralelo (tempo = max(PSM6, PSM4) em vez de PSM6 + PSM4).
+ */
+async function bestTesseractPass(
+  imageBuffer: Buffer
+): Promise<{ text: string; confidence: number }> {
+  const [pass1, pass2] = await Promise.all([
+    tesseractPass(imageBuffer, 6),
+    tesseractPass(imageBuffer, 4),
+  ]);
+
+  console.log(`[OCR] PSM-6 confiança: ${pass1.confidence.toFixed(1)}% | chars: ${pass1.text.length}`);
+  console.log(`[OCR] PSM-4 confiança: ${pass2.confidence.toFixed(1)}% | chars: ${pass2.text.length}`);
+
+  const score = (p: { text: string; confidence: number }) =>
+    p.confidence * Math.sqrt(p.text.length);
+
+  const usedPsm = score(pass1) >= score(pass2) ? 6 : 4;
+  console.log(`[OCR] Melhor passagem: PSM-${usedPsm}`);
+
+  return score(pass1) >= score(pass2) ? pass1 : pass2;
 }
 
 async function extractFromImage(
@@ -108,23 +198,11 @@ async function extractFromImage(
   console.log(`[OCR] Iniciando extração de imagem (${(buffer.length / 1024).toFixed(1)} KB)...`);
 
   const work = async () => {
-    // Pre-process for better OCR quality
     const processed = await preprocessImage(buffer);
     console.log(`[OCR] Imagem pré-processada (${(processed.length / 1024).toFixed(1)} KB PNG).`);
 
-    // First pass: PSM 6 (single uniform block) – best for payslips/forms
-    const pass1 = await tesseractPass(processed, 6);
-    console.log(`[OCR] PSM-6 confiança: ${pass1.confidence.toFixed(1)}% | chars: ${pass1.text.length}`);
-
-    // Second pass: PSM 4 (single column) – useful if layout is column-heavy
-    const pass2 = await tesseractPass(processed, 4);
-    console.log(`[OCR] PSM-4 confiança: ${pass2.confidence.toFixed(1)}% | chars: ${pass2.text.length}`);
-
-    // Pick the pass with higher (confidence × text_length) score
-    const score = (p: { text: string; confidence: number }) =>
-      p.confidence * Math.sqrt(p.text.length);
-    const best = score(pass1) >= score(pass2) ? pass1 : pass2;
-    console.log(`[OCR] Melhor passagem: PSM-${score(pass1) >= score(pass2) ? 6 : 4}`);
+    // PSM 6 e PSM 4 agora rodam em paralelo
+    const best = await bestTesseractPass(processed);
 
     return { ...best, mimeType };
   };
@@ -159,7 +237,7 @@ async function extractFromPdf(
   buffer: Buffer,
   mimeType: string
 ): Promise<OcrExtractionResult> {
-  // ── Phase 1: Try text extraction with pdf2json ───────────────────────────
+  // ── Fase 1: tenta extração de texto com pdf2json ─────────────────────────
   const text = await extractPdfText(buffer);
   if (text && text.length >= 20) {
     console.log(`[OCR] PDF com texto embutido. Chars: ${text.length}`);
@@ -167,26 +245,27 @@ async function extractFromPdf(
     return { text, confidence: 80, mimeType };
   }
 
-  // ── Phase 2: Scanned PDF → pdftoppm + Tesseract ──────────────────────────
+  // ── Fase 2: PDF escaneado → pdftoppm + Tesseract ─────────────────────────
   console.log("[OCR] PDF sem texto embutido — tentando OCR via pdftoppm...");
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ocr-pdf-"));
+
   try {
     const pdfPath = path.join(tmpDir, "input.pdf");
     await fs.promises.writeFile(pdfPath, buffer);
 
-    // Limit to first 3 pages to keep processing time reasonable (payslips are 1–2 pages)
+    // Limita às primeiras 3 páginas (holerites são 1-2 páginas)
     await execFileAsync("pdftoppm", [
-      "-r", "200",    // 200 DPI is enough for OCR
-      "-l", "3",      // first 3 pages only
+      "-r", "200",
+      "-l", "3",
       "-png",
       pdfPath,
       path.join(tmpDir, "page"),
     ]);
 
     const pageFiles = (await fs.promises.readdir(tmpDir))
-      .filter(f => f.endsWith(".png"))
+      .filter((f) => f.endsWith(".png"))
       .sort()
-      .map(f => path.join(tmpDir, f));
+      .map((f) => path.join(tmpDir, f));
 
     if (pageFiles.length === 0) {
       throw new Error("pdftoppm não gerou nenhuma imagem de página.");
@@ -194,30 +273,38 @@ async function extractFromPdf(
 
     console.log(`[OCR] ${pageFiles.length} página(s) convertida(s) para PNG.`);
 
-    const textParts: string[] = [];
-    let totalConfidence = 0;
-    for (const pgFile of pageFiles) {
-      const imgBuf = await fs.promises.readFile(pgFile);
-      const processed = await preprocessImage(imgBuf);
-      const pass1 = await tesseractPass(processed, 6);
-      const pass2 = await tesseractPass(processed, 4);
-      const best = pass1.confidence >= pass2.confidence ? pass1 : pass2;
-      textParts.push(best.text);
-      totalConfidence += best.confidence;
-      console.log(`[OCR] Página: confiança ${best.confidence.toFixed(1)}%, chars ${best.text.length}`);
-    }
+    /**
+     * Otimização: páginas processadas em paralelo com Promise.all.
+     * Antes: loop sequencial — cada página esperava a anterior terminar.
+     * Agora: todas as páginas rodam ao mesmo tempo (tempo ≈ página mais lenta).
+     */
+    const pageResults = await Promise.all(
+      pageFiles.map(async (pgFile) => {
+        const imgBuf = await fs.promises.readFile(pgFile);
+        const processed = await preprocessImage(imgBuf);
 
-    const combinedText = textParts.join("\n").trim();
-    const avgConf = totalConfidence / pageFiles.length;
+        // PSM 6 e PSM 4 também em paralelo dentro de cada página
+        const best = await bestTesseractPass(processed);
+
+        console.log(`[OCR] Página ${path.basename(pgFile)}: confiança ${best.confidence.toFixed(1)}%, chars ${best.text.length}`);
+        return best;
+      })
+    );
+
+    const combinedText = pageResults.map((r) => r.text).join("\n").trim();
+    const avgConf =
+      pageResults.reduce((sum, r) => sum + r.confidence, 0) / pageResults.length;
+
     console.log(`[OCR] PDF escaneado extraído. Total chars: ${combinedText.length}, conf média: ${avgConf.toFixed(1)}%`);
     console.log(`[OCR] Primeiros 600 chars:\n---\n${combinedText.slice(0, 600)}\n---`);
+
     return { text: combinedText, confidence: avgConf, mimeType };
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
 
-/** Extract embedded text from a PDF buffer using pdf2json. Returns null / "" if no text. */
+/** Extrai texto embutido de um buffer PDF via pdf2json. Retorna "" se não houver texto. */
 function extractPdfText(buffer: Buffer): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("pdf2json timeout")), 30_000);
@@ -225,9 +312,9 @@ function extractPdfText(buffer: Buffer): Promise<string> {
       const PDFParser = require("pdf2json");
       const pdfParser = new PDFParser(null, 1);
 
-      pdfParser.on("pdfParser_dataError", (err: any) => {
+      pdfParser.on("pdfParser_dataError", () => {
         clearTimeout(timer);
-        resolve(""); // treat errors as "no text"
+        resolve("");
       });
 
       pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
