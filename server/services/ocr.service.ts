@@ -69,7 +69,7 @@ async function preprocessImage(raw: Buffer): Promise<Buffer> {
     // Upscale if image is too small (< 1500px wide) — Tesseract needs ~300 DPI
     const scaleUp = w < 1500 ? Math.min(4, Math.ceil(1500 / w)) : 1;
 
-    let pipeline = sharp(raw);
+    let pipeline = sharp(raw).rotate();
     if (scaleUp > 1) {
       pipeline = pipeline.resize({ width: w * scaleUp, kernel: "lanczos3" });
     }
@@ -81,6 +81,22 @@ async function preprocessImage(raw: Buffer): Promise<Buffer> {
       .toBuffer();
   } catch (err: any) {
     console.warn("[OCR] Pre-processamento falhou, usando imagem original:", err?.message);
+    return raw;
+  }
+}
+
+/**
+ * Minimal pre-process path: only auto-rotate using EXIF orientation and export PNG.
+ * Used as a fallback when strong enhancement degrades OCR in noisy images.
+ */
+async function minimalPreprocessImage(raw: Buffer): Promise<Buffer> {
+  try {
+    return await sharp(raw)
+      .rotate()
+      .png()
+      .toBuffer();
+  } catch (err: any) {
+    console.warn("[OCR] Pre-processamento mínimo falhou, usando imagem original:", err?.message);
     return raw;
   }
 }
@@ -108,23 +124,36 @@ async function extractFromImage(
   console.log(`[OCR] Iniciando extração de imagem (${(buffer.length / 1024).toFixed(1)} KB)...`);
 
   const work = async () => {
-    // Pre-process for better OCR quality
-    const processed = await preprocessImage(buffer);
-    console.log(`[OCR] Imagem pré-processada (${(processed.length / 1024).toFixed(1)} KB PNG).`);
-
-    // First pass: PSM 6 (single uniform block) – best for payslips/forms
-    const pass1 = await tesseractPass(processed, 6);
-    console.log(`[OCR] PSM-6 confiança: ${pass1.confidence.toFixed(1)}% | chars: ${pass1.text.length}`);
-
-    // Second pass: PSM 4 (single column) – useful if layout is column-heavy
-    const pass2 = await tesseractPass(processed, 4);
-    console.log(`[OCR] PSM-4 confiança: ${pass2.confidence.toFixed(1)}% | chars: ${pass2.text.length}`);
-
-    // Pick the pass with higher (confidence × text_length) score
     const score = (p: { text: string; confidence: number }) =>
       p.confidence * Math.sqrt(p.text.length);
-    const best = score(pass1) >= score(pass2) ? pass1 : pass2;
-    console.log(`[OCR] Melhor passagem: PSM-${score(pass1) >= score(pass2) ? 6 : 4}`);
+
+    const runPassSet = async (label: string, img: Buffer) => {
+      const pass1 = await tesseractPass(img, 6);
+      console.log(`[OCR] ${label} PSM-6 confiança: ${pass1.confidence.toFixed(1)}% | chars: ${pass1.text.length}`);
+
+      const pass2 = await tesseractPass(img, 4);
+      console.log(`[OCR] ${label} PSM-4 confiança: ${pass2.confidence.toFixed(1)}% | chars: ${pass2.text.length}`);
+
+      const best = score(pass1) >= score(pass2) ? pass1 : pass2;
+      const bestPsm = score(pass1) >= score(pass2) ? 6 : 4;
+      return { best, bestPsm };
+    };
+
+    // Path A: enhanced pre-processing
+    const processed = await preprocessImage(buffer);
+    console.log(`[OCR] Imagem pré-processada (${(processed.length / 1024).toFixed(1)} KB PNG).`);
+    const enhanced = await runPassSet("[enhanced]", processed);
+
+    // Path B: minimal pre-processing (auto-rotate only)
+    const minimal = await minimalPreprocessImage(buffer);
+    console.log(`[OCR] Imagem pre-processada mínima (${(minimal.length / 1024).toFixed(1)} KB PNG).`);
+    const baseline = await runPassSet("[baseline]", minimal);
+
+    // Pick the global best between enhanced and baseline paths
+    const best = score(enhanced.best) >= score(baseline.best) ? enhanced.best : baseline.best;
+    const source = score(enhanced.best) >= score(baseline.best) ? "enhanced" : "baseline";
+    const psm = source === "enhanced" ? enhanced.bestPsm : baseline.bestPsm;
+    console.log(`[OCR] Melhor passagem: ${source.toUpperCase()} PSM-${psm}`);
 
     return { ...best, mimeType };
   };

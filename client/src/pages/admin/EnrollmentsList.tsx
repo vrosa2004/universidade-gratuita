@@ -69,7 +69,7 @@ export default function AdminEnrollmentsList() {
                       <SelectItem value="in_analysis">Em Análise</SelectItem>
                       <SelectItem value="approved">Aprovado</SelectItem>
                       <SelectItem value="rejected">Rejeitado</SelectItem>
-                      <SelectItem value="pending">Docs Pendentes</SelectItem>
+                      <SelectItem value="files_pending">Docs Pendentes</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

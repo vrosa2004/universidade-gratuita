@@ -19,6 +19,7 @@ export const enrollments = pgTable("enrollments", {
   studentId: integer("student_id").notNull(),
   status: text("status", { enum: ['pending', 'files_pending', 'in_analysis', 'approved', 'rejected'] }).notNull().default('pending'),
   name: text("name"),
+  address: text("address"),
   cpf: text("cpf"),
   dateOfBirth: text("date_of_birth"),
   income: integer("income"),
@@ -43,8 +44,8 @@ export const enrollments = pgTable("enrollments", {
 });
 
 export const DOCUMENT_TYPE_VALUES = [
-  // Base documents — identity via frente + verso (CPF is embedded in the RG/CNH)
-  'rg_frente', 'rg_verso', 'residence', 'transcript',
+  // Base documents
+  'rg', 'cpf', 'residence', 'transcript',
   // General income
   'income_proof', 'income_justification',
   // Shared
@@ -102,6 +103,7 @@ function isValidCpf(cpf: string): boolean {
 export const insertEnrollmentSchema = createInsertSchema(enrollments)
   .omit({ id: true, createdAt: true, systemDecision: true, status: true })
   .extend({
+    address: z.string().trim().min(8, 'Endereço deve ter ao menos 8 caracteres').optional(),
     cpf: z.string().optional().refine(
       (val) => !val || isValidCpf(val),
       { message: 'CPF inválido' }

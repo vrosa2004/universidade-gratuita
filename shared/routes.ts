@@ -139,7 +139,7 @@ export const api = {
     updateStatus: {
       method: 'PATCH' as const,
       path: '/api/admin/enrollments/:id/status' as const,
-      input: z.object({ status: z.enum(['pending', 'in_analysis', 'approved', 'rejected']) }),
+      input: z.object({ status: z.enum(['pending', 'files_pending', 'in_analysis', 'approved', 'rejected']) }),
       responses: {
         200: z.custom<typeof enrollments.$inferSelect>(),
       }
